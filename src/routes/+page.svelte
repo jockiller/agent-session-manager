@@ -8,7 +8,7 @@
   import CleanupModal from "$lib/components/CleanupModal.svelte";
   import AboutModal from "$lib/components/AboutModal.svelte";
   import { Star, Download, Trash2, X, Globe, Info } from "@lucide/svelte";
-  import { formatTokens, parseLocalDateStart, parseLocalDateEnd } from "$lib/utils";
+  import { formatTokens, parseLocalDateStart, parseLocalDateEnd, normalizeTimestamp } from "$lib/utils";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t, i18n, supportedLocales, type Locale } from "$lib/i18n";
 
@@ -253,15 +253,20 @@
     isLoading = true;
     try {
       const data = await invoke<SessionSummary[]>("scan_all_sessions");
-      sessions = data;
+      const normalizedData = data.map((item) => ({
+        ...item,
+        created_at: normalizeTimestamp(item.created_at),
+        updated_at: normalizeTimestamp(item.updated_at),
+      }));
+      sessions = normalizedData;
 
       // Update global stats
-      const s = await invoke<GlobalStats>("calculate_global_stats", { sessions: data });
+      const s = await invoke<GlobalStats>("calculate_global_stats", { sessions: normalizedData });
       stats = s;
 
       // Maintain selection or select first
       if (selectedSession) {
-        const found = data.find((item) => item.id === selectedSession?.id);
+        const found = normalizedData.find((item) => item.id === selectedSession?.id);
         if (found) {
           selectedSession = found;
         } else {

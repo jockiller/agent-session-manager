@@ -60,7 +60,7 @@ impl TraeAdapter {
     fn parse_summary_time(time_str: &str) -> Option<i64> {
         // format: "2026-09-01 19:32:55"
         if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%d %H:%M:%S") {
-            return Some(dt.and_utc().timestamp());
+            return Some(dt.and_utc().timestamp_millis());
         }
         None
     }
@@ -188,8 +188,8 @@ impl AgentAdapter for TraeAdapter {
                     all_paths: vec![main_path_str],
                     cwd: project_dir,
                     title,
-                    created_at,
-                    updated_at,
+                    created_at: crate::adapters::to_millis(created_at),
+                    updated_at: crate::adapters::to_millis(updated_at),
                     size_bytes: file_size,
                     turn_count,
                     is_subagent: false,

@@ -149,12 +149,12 @@ impl AgentAdapter for WorkBuddyAdapter {
                                     }
                                 } else if let Some(s) = ts_val.as_str() {
                                     if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
-                                        let sec = dt.timestamp();
-                                        if created_at == mtime_sec || sec < created_at {
-                                            created_at = sec;
+                                        let ms = dt.timestamp_millis();
+                                        if created_at == mtime_sec || ms < created_at {
+                                            created_at = ms;
                                         }
-                                        if sec > updated_at {
-                                            updated_at = sec;
+                                        if ms > updated_at {
+                                            updated_at = ms;
                                         }
                                     }
                                 }
@@ -219,8 +219,8 @@ impl AgentAdapter for WorkBuddyAdapter {
                     all_paths: vec![main_path_str],
                     cwd,
                     title,
-                    created_at,
-                    updated_at,
+                    created_at: crate::adapters::to_millis(created_at),
+                    updated_at: crate::adapters::to_millis(updated_at),
                     size_bytes: file_size,
                     turn_count,
                     is_subagent,

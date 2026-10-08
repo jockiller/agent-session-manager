@@ -8,9 +8,15 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+export function normalizeTimestamp(ts: number | null | undefined): number {
+  if (!ts || !Number.isFinite(ts) || ts <= 0) return 0;
+  return ts < 100_000_000_000 ? ts * 1000 : ts;
+}
+
 export function formatTime(ts: number): string {
-  if (!ts) return "-";
-  const d = new Date(ts);
+  const nts = normalizeTimestamp(ts);
+  if (!nts) return "-";
+  const d = new Date(nts);
   return d.toLocaleString(i18n.locale, {
     year: "numeric",
     month: "2-digit",
@@ -21,9 +27,11 @@ export function formatTime(ts: number): string {
 }
 
 export function formatTimeAgo(ts: number): string {
-  if (!ts) return "-";
+  const nts = normalizeTimestamp(ts);
+  if (!nts) return "-";
   const now = Date.now();
-  const diffSec = Math.floor((now - ts) / 1000);
+  const diffSec = Math.floor((now - nts) / 1000);
+  if (diffSec < 0) return t("time_just_now");
   if (diffSec < 60) return t("time_just_now");
   if (diffSec < 3600) return t("time_m_ago", { n: Math.floor(diffSec / 60) });
   if (diffSec < 86400) return t("time_h_ago", { n: Math.floor(diffSec / 3600) });

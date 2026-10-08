@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
-use crate::adapters::AgentAdapter;
+use crate::adapters::{to_millis, AgentAdapter};
 use crate::models::{ChatMessage, SessionSummary};
 
 pub struct OpenCodeAdapter {
@@ -115,13 +115,9 @@ impl AgentAdapter for OpenCodeAdapter {
         };
 
         for r in rows.flatten() {
-            let (id, mut title, directory, parent_id, mut time_created, mut time_updated) = r;
-            if time_created > 10_000_000_000 {
-                time_created /= 1000;
-            }
-            if time_updated > 10_000_000_000 {
-                time_updated /= 1000;
-            }
+            let (id, mut title, directory, parent_id, time_created, time_updated) = r;
+            let created_at = to_millis(time_created);
+            let updated_at = to_millis(time_updated);
 
             if title.is_empty() {
                 title = format!("{} 会话 {}", self.name, &id[..id.len().min(8)]);
@@ -135,12 +131,12 @@ impl AgentAdapter for OpenCodeAdapter {
                 platform: self.platform.to_string(),
                 flavor: self.platform.to_string(),
                 dirname: directory.clone(),
-                main_path: main_path_str.clone(),
-                all_paths: vec![main_path_str],
+                main_path: main_path_str,
+                all_paths: vec![],
                 cwd: directory,
                 title,
-                created_at: time_created,
-                updated_at: time_updated,
+                created_at,
+                updated_at,
                 size_bytes: 4096,
                 turn_count: 1,
                 is_subagent,
@@ -233,7 +229,25 @@ impl AgentAdapter for OpenCodeAdapter {
         msgs
     }
 
-    fn prune_indexes(&self, _session_ids: &[String]) -> usize {
-        0
+    fn prune_indexes(&self, session_ids: &[String]) -> usize {
+        if session_ids.is_empty() {
+            return 0;
+        }
+
+        let mut pruned = 0;
+        if let Some(db_path) = self.find_db() {
+            if let Ok(conn) = Connection::open(&db_path) {
+                for id in session_ids {
+                    let _ = conn.execute("DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ?)", [id]);
+                    let _ = conn.execute("DELETE FROM message WHERE session_id = ?", [id]);
+                    if let Ok(c) = conn.execute("DELETE FROM session WHERE id = ?", [id]) {
+                        pruned += c;
+                    }
+                }
+                let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+            }
+        }
+
+        pruned
     }
 }

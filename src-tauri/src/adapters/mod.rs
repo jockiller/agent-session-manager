@@ -28,6 +28,19 @@ pub fn user_home() -> Option<PathBuf> {
     None
 }
 
+/// Normalizes any timestamp (seconds or milliseconds) to millisecond precision
+#[inline]
+pub fn to_millis(ts: i64) -> i64 {
+    if ts <= 0 {
+        return 0;
+    }
+    if ts < 100_000_000_000 {
+        ts * 1000
+    } else {
+        ts
+    }
+}
+
 pub trait AgentAdapter: Send + Sync {
     fn platform_id(&self) -> &'static str;
     fn display_name(&self) -> &'static str;

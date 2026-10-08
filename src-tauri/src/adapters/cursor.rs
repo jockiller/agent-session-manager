@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
-use crate::adapters::AgentAdapter;
+use crate::adapters::{to_millis, AgentAdapter};
 use crate::models::{ChatMessage, SessionSummary};
 
 pub struct CursorAdapter;
@@ -89,6 +89,28 @@ impl CursorAdapter {
         }
         None
     }
+
+    /// Helper to update value in SQLite checking ItemTable or cursorDiskKV
+    fn update_sqlite_key(conn: &Connection, key: &str, val: &str) -> bool {
+        let mut updated = false;
+        let sql_item = "UPDATE ItemTable SET value = ?1 WHERE key = ?2";
+        if let Ok(mut stmt) = conn.prepare(sql_item) {
+            if let Ok(rows) = stmt.execute([val, key]) {
+                if rows > 0 {
+                    updated = true;
+                }
+            }
+        }
+        let sql_disk = "UPDATE cursorDiskKV SET value = ?1 WHERE key = ?2";
+        if let Ok(mut stmt) = conn.prepare(sql_disk) {
+            if let Ok(rows) = stmt.execute([val, key]) {
+                if rows > 0 {
+                    updated = true;
+                }
+            }
+        }
+        updated
+    }
 }
 
 impl AgentAdapter for CursorAdapter {
@@ -147,8 +169,8 @@ impl AgentAdapter for CursorAdapter {
 
                     let mut title = String::new();
                     let mut cwd = String::new();
-                    let created_at = mtime_sec;
-                    let updated_at = mtime_sec;
+                    let created_at = to_millis(mtime_sec);
+                    let updated_at = to_millis(mtime_sec);
                     let mut turn_count = 0u32;
 
                     if let Ok(file) = File::open(path) {
@@ -261,8 +283,8 @@ impl AgentAdapter for CursorAdapter {
                                 seen_ids.insert(cid.to_string());
 
                                 let name = comp.get("name").and_then(Value::as_str).unwrap_or("");
-                                let created_ms = comp.get("createdAt").and_then(Value::as_i64).unwrap_or(0);
-                                let created_sec = if created_ms > 0 { created_ms / 1000 } else { chrono::Utc::now().timestamp() };
+                                let created_raw = comp.get("createdAt").and_then(Value::as_i64).unwrap_or(0);
+                                let created_at = if created_raw > 0 { to_millis(created_raw) } else { chrono::Utc::now().timestamp_millis() };
 
                                 let turn_count = comp.get("conversation")
                                     .and_then(Value::as_array)
@@ -283,11 +305,11 @@ impl AgentAdapter for CursorAdapter {
                                     flavor: "composer".to_string(),
                                     dirname: dirname.clone(),
                                     main_path: db_path_str.clone(),
-                                    all_paths: vec![db_path_str.clone()],
+                                    all_paths: vec![],
                                     cwd: cwd.clone(),
                                     title,
-                                    created_at: created_sec,
-                                    updated_at: created_sec,
+                                    created_at,
+                                    updated_at: created_at,
                                     size_bytes: db_size,
                                     turn_count,
                                     is_subagent: false,
@@ -324,18 +346,18 @@ impl AgentAdapter for CursorAdapter {
                                     format!("Cursor 对话 {}", &tid[..tid.len().min(8)])
                                 };
 
-                                let now_sec = chrono::Utc::now().timestamp();
+                                let now_ms = chrono::Utc::now().timestamp_millis();
                                 summaries.push(SessionSummary {
                                     id: tid.to_string(),
                                     platform: "cursor".to_string(),
                                     flavor: "chat".to_string(),
                                     dirname: dirname.clone(),
                                     main_path: db_path_str.clone(),
-                                    all_paths: vec![db_path_str.clone()],
+                                    all_paths: vec![],
                                     cwd: cwd.clone(),
                                     title,
-                                    created_at: now_sec,
-                                    updated_at: now_sec,
+                                    created_at: now_ms,
+                                    updated_at: now_ms,
                                     size_bytes: db_size,
                                     turn_count,
                                     is_subagent: false,
@@ -475,7 +497,106 @@ impl AgentAdapter for CursorAdapter {
         msgs
     }
 
-    fn prune_indexes(&self, _session_ids: &[String]) -> usize {
-        0
+    fn prune_indexes(&self, session_ids: &[String]) -> usize {
+        if session_ids.is_empty() {
+            return 0;
+        }
+        let set: HashSet<&str> = session_ids.iter().map(|s| s.as_str()).collect();
+        let roots = Self::candidate_dirs();
+        let mut pruned = 0;
+
+        for root in &roots {
+            let mut db_targets = Vec::new();
+            let storage_dir = root.join("User").join("workspaceStorage");
+            if storage_dir.exists() {
+                if let Ok(entries) = fs::read_dir(&storage_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let db_path = path.join("state.vscdb");
+                        if db_path.exists() {
+                            db_targets.push(db_path);
+                        }
+                    }
+                }
+            }
+            let global_db = root.join("User").join("globalStorage").join("state.vscdb");
+            if global_db.exists() {
+                db_targets.push(global_db);
+            }
+
+            for db_path in db_targets {
+                let conn = match Connection::open(&db_path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+
+                let mut db_modified = false;
+
+                // 1. Prune composer.composerData
+                if let Some(json_str) = Self::query_sqlite_key(&conn, "composer.composerData") {
+                    if let Ok(mut val) = serde_json::from_str::<Value>(&json_str) {
+                        if let Some(composers) = val.get_mut("allComposers").and_then(Value::as_array_mut) {
+                            let orig_len = composers.len();
+                            composers.retain(|c| {
+                                let cid = c.get("composerId").and_then(Value::as_str).unwrap_or("");
+                                !set.contains(cid)
+                            });
+                            if composers.len() < orig_len {
+                                pruned += orig_len - composers.len();
+                                if let Ok(new_json) = serde_json::to_string(&val) {
+                                    Self::update_sqlite_key(&conn, "composer.composerData", &new_json);
+                                    db_modified = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Prune workbench.panel.aichat.chatdata
+                if let Some(json_str) = Self::query_sqlite_key(&conn, "workbench.panel.aichat.chatdata") {
+                    if let Ok(mut val) = serde_json::from_str::<Value>(&json_str) {
+                        if let Some(tabs) = val.get_mut("tabs").and_then(Value::as_array_mut) {
+                            let orig_len = tabs.len();
+                            tabs.retain(|t| {
+                                let tid = t.get("tabId").and_then(Value::as_str).unwrap_or("");
+                                !set.contains(tid)
+                            });
+                            if tabs.len() < orig_len {
+                                pruned += orig_len - tabs.len();
+                                if let Ok(new_json) = serde_json::to_string(&val) {
+                                    Self::update_sqlite_key(&conn, "workbench.panel.aichat.chatdata", &new_json);
+                                    db_modified = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if db_modified {
+                    let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+                }
+            }
+
+            // 3. Remove agent transcripts if present
+            let scan_dirs = [root.join("projects"), root.join("transcripts"), root.clone()];
+            for base_dir in scan_dirs {
+                if !base_dir.exists() {
+                    continue;
+                }
+                for entry in walkdir::WalkDir::new(&base_dir).into_iter().flatten() {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().map_or(false, |e| e == "jsonl") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            if set.contains(stem) {
+                                let _ = fs::remove_file(path);
+                                pruned += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        pruned
     }
 }

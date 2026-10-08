@@ -1,6 +1,7 @@
 <script lang="ts">
   import { X, ExternalLink, Copy, Check } from "@lucide/svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import { getVersion } from "@tauri-apps/api/app";
   import { t } from "../i18n";
 
   let {
@@ -12,7 +13,15 @@
   } = $props();
 
   const repoUrl = "https://github.com/jockiller/agent-session-manager";
-  const appVersion = "0.1.0";
+  let appVersion = $state("0.1.1");
+
+  $effect(() => {
+    getVersion()
+      .then((v) => {
+        if (v) appVersion = v;
+      })
+      .catch(() => {});
+  });
 
   let copied = $state(false);
 

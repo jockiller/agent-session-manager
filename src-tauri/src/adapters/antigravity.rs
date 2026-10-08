@@ -470,6 +470,7 @@ impl AgentAdapter for AntigravityAdapter {
                             pruned += count;
                         }
                     }
+                    let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
                 }
             }
         }

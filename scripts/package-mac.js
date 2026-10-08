@@ -47,6 +47,9 @@ async function packageMac() {
 
   // 1. 构建 Tauri App 和 DMG
   console.log('[1/3] 正在编译前端与 Rust 原生程序 (pnpm tauri build)...');
+  try {
+    spawnSync('sh', ['-c', 'hdiutil info | grep "/Volumes/Agent Session Manager" | awk \'{print $1}\' | while read -r dev; do hdiutil detach "$dev" -force 2>/dev/null; done'], { stdio: 'ignore' });
+  } catch {}
   run('pnpm', ['tauri', 'build', '--bundles', 'app,dmg']);
 
   // 2. 执行签名与深校验

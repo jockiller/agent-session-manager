@@ -283,6 +283,7 @@ impl AgentAdapter for GrokAdapter {
                         pruned += count;
                     }
                 }
+                let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
             }
         }
 

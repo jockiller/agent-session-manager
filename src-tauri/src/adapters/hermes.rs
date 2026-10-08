@@ -68,10 +68,8 @@ impl AgentAdapter for HermesAdapter {
         };
 
         for r in rows.flatten() {
-            let (id, mut title, cwd, mut started_at) = r;
-            if started_at > 10_000_000_000 {
-                started_at /= 1000;
-            }
+            let (id, mut title, cwd, started_at) = r;
+            let created_at = crate::adapters::to_millis(started_at);
 
             if title.is_empty() {
                 title = format!("Hermes 会话 {}", &id[..id.len().min(8)]);
@@ -84,12 +82,12 @@ impl AgentAdapter for HermesAdapter {
                 platform: "hermes".to_string(),
                 flavor: "hermes".to_string(),
                 dirname: cwd.clone(),
-                main_path: main_path_str.clone(),
-                all_paths: vec![main_path_str],
+                main_path: main_path_str,
+                all_paths: vec![],
                 cwd,
                 title,
-                created_at: started_at,
-                updated_at: started_at,
+                created_at,
+                updated_at: created_at,
                 size_bytes: 4096,
                 turn_count: 1,
                 is_subagent: false,
@@ -158,7 +156,22 @@ impl AgentAdapter for HermesAdapter {
         msgs
     }
 
-    fn prune_indexes(&self, _session_ids: &[String]) -> usize {
-        0
+    fn prune_indexes(&self, session_ids: &[String]) -> usize {
+        if session_ids.is_empty() {
+            return 0;
+        }
+        let mut pruned = 0;
+        let db_path = Self::db_path();
+        if db_path.exists() {
+            if let Ok(conn) = Connection::open(&db_path) {
+                for id in session_ids {
+                    if let Ok(c) = conn.execute("DELETE FROM sessions WHERE id = ?", [id]) {
+                        pruned += c;
+                    }
+                }
+                let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+            }
+        }
+        pruned
     }
 }

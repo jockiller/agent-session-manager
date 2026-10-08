@@ -22,7 +22,7 @@ impl QoderAdapter {
 
     fn parse_iso_ts(ts_str: &str) -> Option<i64> {
         if let Ok(dt) = DateTime::parse_from_rfc3339(ts_str) {
-            return Some(dt.timestamp());
+            return Some(dt.timestamp_millis());
         }
         None
     }
@@ -266,7 +266,7 @@ impl AgentAdapter for QoderAdapter {
                         title = format!("Qoder 会话 {}", &raw_id[..raw_id.len().min(8)]);
                     }
                     if earliest_ts == 0 {
-                        earliest_ts = chrono::Utc::now().timestamp();
+                        earliest_ts = chrono::Utc::now().timestamp_millis();
                     }
                     if latest_ts == 0 {
                         latest_ts = earliest_ts;
@@ -285,8 +285,8 @@ impl AgentAdapter for QoderAdapter {
                         },
                         cwd: resolved_cwd,
                         title,
-                        created_at: earliest_ts,
-                        updated_at: latest_ts,
+                        created_at: crate::adapters::to_millis(earliest_ts),
+                        updated_at: crate::adapters::to_millis(latest_ts),
                         size_bytes: total_size,
                         turn_count,
                         is_subagent: false,

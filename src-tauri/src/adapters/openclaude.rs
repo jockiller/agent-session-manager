@@ -187,8 +187,8 @@ impl AgentAdapter for OpenClaudeAdapter {
                                     all_paths,
                                     cwd: cwd.clone(),
                                     title,
-                                    created_at,
-                                    updated_at,
+                                    created_at: crate::adapters::to_millis(created_at),
+                                    updated_at: crate::adapters::to_millis(updated_at),
                                     size_bytes: total_size,
                                     turn_count,
                                     is_subagent: false,
@@ -228,12 +228,12 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                             if let Ok(s_val) = serde_json::from_str::<Value>(&s_line) {
                                                                 if let Some(ts) = s_val.get("timestamp").and_then(Value::as_str) {
                                                                     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
-                                                                        let sec = dt.timestamp();
-                                                                        if sub_created == 0 || sec < sub_created {
-                                                                            sub_created = sec;
+                                                                        let ms = dt.timestamp_millis();
+                                                                        if sub_created == 0 || ms < sub_created {
+                                                                            sub_created = ms;
                                                                         }
-                                                                        if sec > sub_updated {
-                                                                            sub_updated = sec;
+                                                                        if ms > sub_updated {
+                                                                            sub_updated = ms;
                                                                         }
                                                                     }
                                                                 }
@@ -292,8 +292,8 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                         all_paths: vec![sub_path.to_string_lossy().to_string()],
                                                         cwd: cwd.clone(),
                                                         title: sub_title,
-                                                        created_at: sub_created,
-                                                        updated_at: sub_updated,
+                                                        created_at: crate::adapters::to_millis(sub_created),
+                                                        updated_at: crate::adapters::to_millis(sub_updated),
                                                         size_bytes: sub_size,
                                                         turn_count: sub_turns,
                                                         is_subagent: true,
