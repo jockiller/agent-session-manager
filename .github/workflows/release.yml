@@ -1,0 +1,105 @@
+name: Release & Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--bundles app,dmg'
+          - platform: 'ubuntu-22.04'
+            args: '--bundles deb,appimage'
+          - platform: 'windows-latest'
+            args: '--bundles nsis'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies (Ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: macOS Code Signing Preparation (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          # If Apple certificate is provided in secrets, import it
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+            echo "Importing Apple Developer Certificate..."
+            echo "${{ secrets.APPLE_CERTIFICATE }}" | base64 --decode > certificate.p12
+            security create-keychain -p "" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -u build.keychain
+            security import certificate.p12 -k build.keychain -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
+          fi
+
+      - name: Build Tauri Application
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Agent Session Manager ${{ github.ref_name }}'
+          releaseBody: |
+            ## Agent Session Manager ${{ github.ref_name }}
+            
+            Cross-platform desktop session manager for AI Agent CLIs & developer tools (Claude Code, OpenAI Codex, OpenCode, OpenClaw, Gemini, Qwen, DeepSeek, Cursor, Hermes, etc.).
+
+            ### Assets
+            - **macOS**: `.dmg` (Apple Silicon & Intel)
+            - **Windows**: `.exe` (NSIS Installer)
+            - **Linux**: `.AppImage` / `.deb`
+
+            ### macOS Gatekeeper Note
+            If you encounter "Application is damaged" or Gatekeeper blocks on macOS:
+            Run in Terminal:
+            ```bash
+            sudo xattr -dr com.apple.quarantine "/Applications/Agent Session Manager.app"
+            ```
+            Or use the included `双击解除隔离.command` helper script.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
