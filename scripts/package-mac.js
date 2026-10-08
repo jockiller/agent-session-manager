@@ -74,15 +74,6 @@ async function packageMac() {
     }
   }
 
-  // 拷贝 解除隔离脚本
-  const quarantineSrc = path.join(__dirname, 'remove_quarantine.command');
-  const quarantineDest = path.join(releaseDir, '双击解除隔离.command');
-  if (fs.existsSync(quarantineSrc)) {
-    fs.copyFileSync(quarantineSrc, quarantineDest);
-    fs.chmodSync(quarantineDest, 0o755);
-    console.log(`  ✓ 已生成: release/双击解除隔离.command`);
-  }
-
   // 生成使用说明文件
   const readmeContent = `Agent Session Manager - macOS 安装与运行说明
 ======================================================
@@ -90,18 +81,16 @@ async function packageMac() {
 1. 安装方式：
    - 双击打开 DMG 镜像文件，将 "Agent Session Manager.app" 拖动至 "Applications" (应用程序) 文件夹中即可。
 
-2. 首次打开提示“无法打开”或“已损坏”时解决办法：
-   macOS Sequoia / Sonoma 对自签名和非 App Store 下载的应用实施了严格的安全隔离 (Gatekeeper)。
+2. 首次打开提示“无法打开”或“未知名开发者”时解决办法：
+   macOS Sequoia / Sonoma 对非 App Store 下载的应用实施了安全机制 (Gatekeeper)。
    
-   【方式一（推荐，一键解决）】
-   直接双击运行本目录下的 "双击解除隔离.command" 脚本，回车确认即可自动解除限制。
-
-   【方式二（系统设置放行）】
+   【方式一（系统设置放行）】
    打开 macOS「系统设置」->「隐私与安全性」，滑到底部，在提示阻拦的区域点击「仍要打开」即可。
 
-   【方式三（终端命令）】
+   【方式二（终端命令）】
    打开终端运行以下命令：
    sudo xattr -dr com.apple.quarantine "/Applications/Agent Session Manager.app"
+
 
 3. 局域网与网络权限说明：
    应用支持多 Agent 平台会话管理（Claude Code, Codex, OpenCode, Goose 等），已内置 Hardened Runtime 网络客户端与服务端权限。

@@ -47,7 +47,7 @@ As developers adopt diverse AI agents (Claude Code, OpenAI Codex, OpenCode, Open
 - **Safe Session Cleanup**: Filter and safely purge old, stale, or abandoned agent sessions to reclaim disk space with one click.
 - **Native Look & Feel**: Built with Tauri 2 with macOS vibrancy, native title bar overlay, smooth fluid animations, and lightweight memory footprint (< 40MB RAM).
 - **Internationalization (i18n)**: Full multilingual support for English, Simplified Chinese, Traditional Chinese, Japanese, and Korean.
-- **macOS Hardened Runtime & Deep Code Signing**: Follows strict macOS codesign guidelines with ad-hoc deep signing fallback and Gatekeeper isolation remover.
+- **macOS Hardened Runtime & Deep Code Signing**: Follows strict macOS codesign guidelines with ad-hoc deep signing fallback.
 
 ---
 
@@ -81,12 +81,11 @@ Download the latest prebuilt binaries from [Releases](https://github.com/jockill
 
 If macOS displays *"Agent Session Manager is damaged and cannot be opened"* or blocks untrusted developers:
 
-1. **Option 1 (One-click Helper)**: Run the included `双击解除隔离.command` helper script.
-2. **Option 2 (Terminal)**:
+1. **Option 1 (System Settings)**: Open `System Settings` > `Privacy & Security` and click `Open Anyway`.
+2. **Option 2 (Terminal Command)**:
    ```bash
    sudo xattr -dr com.apple.quarantine "/Applications/Agent Session Manager.app"
    ```
-3. **Option 3 (System Settings)**: Open `System Settings` > `Privacy & Security` and click `Open Anyway`.
 
 ---
 

@@ -99,7 +99,6 @@ jobs:
             ```bash
             sudo xattr -dr com.apple.quarantine "/Applications/Agent Session Manager.app"
             ```
-            Or use the included `双击解除隔离.command` helper script.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

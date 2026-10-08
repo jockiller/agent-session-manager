@@ -47,7 +47,7 @@
 - **安全批量清理**：按 Agent 平台、时间范围或文件大小安全清理陈旧或失效会话，释放磁盘空间。
 - **原生沉浸式桌面体验**：借助 Tauri 2 实现极速启动、毛玻璃效果（macOS Vibrancy）、极低内存占用（< 40MB）。
 - **完善多语言支持 (i18n)**：内置简体中文、繁体中文、英语、日语、韩语，默认跟随系统语言。
-- **macOS 安全签名与隔离解除**：包含 Hardened Runtime 与深签名兜底，并提供双击解除 Gatekeeper 隔离脚本。
+- **macOS 安全签名**：包含 Hardened Runtime 与深签名兜底，保障网络与本地资源稳定授权。
 
 ---
 
@@ -79,14 +79,13 @@
 
 ### macOS 首次运行与放行说明
 
-macOS Sequoia / Sonoma 对非 App Store 下载的应用实施了严格的安全隔离 (Gatekeeper)，如遇“应用已损坏”或“无法验证开发者”提示：
+macOS Sequoia / Sonoma 对非 App Store 下载的应用实施了安全机制 (Gatekeeper)，如遇“应用已损坏”或“无法验证开发者”提示：
 
-1. **方式一（一键解除）**：双击运行安装包配套提供的 `双击解除隔离.command` 脚本。
+1. **方式一（系统设置放行）**：打开 macOS「系统设置」->「隐私与安全性」，滑到底部点击「仍要打开」。
 2. **方式二（终端命令）**：
    ```bash
    sudo xattr -dr com.apple.quarantine "/Applications/Agent Session Manager.app"
    ```
-3. **方式三（系统设置）**：打开「系统设置」->「隐私与安全性」，滑到底部点击「仍要打开」。
 
 ---
 
