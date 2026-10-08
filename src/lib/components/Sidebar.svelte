@@ -85,17 +85,9 @@
 
 <aside class="w-56 shrink-0 h-full bg-slate-50/95 border-r border-slate-200/90 flex flex-col overflow-hidden select-none">
   <!-- Top: Brand Header & Refresh -->
-  <div class="px-4 py-3 border-b border-slate-200/80 flex items-center justify-between shrink-0">
-    <div class="flex items-center gap-2.5 min-w-0">
-      <div class="h-8 w-8 rounded-lg bg-gradient-to-tr from-sky-500 via-indigo-500 to-indigo-600 flex items-center justify-center shadow-xs text-white shrink-0">
-        <Layers class="h-4.5 w-4.5" />
-      </div>
-      <div class="min-w-0">
-        <h1 class="text-xs font-bold text-slate-900 tracking-tight leading-tight truncate">
-          {t("app_title")}
-        </h1>
-        <p class="text-[10px] text-slate-500 leading-none truncate">{t("app_subtitle")}</p>
-      </div>
+  <div class="px-3.5 py-2.5 border-b border-slate-200/80 flex items-center justify-between shrink-0">
+    <div class="flex items-center">
+      <img src="/logo.png" alt="Agent Session Manager" class="h-7 w-7 rounded-lg shadow-2xs shrink-0 select-none" />
     </div>
 
     <!-- Quick refresh button -->
