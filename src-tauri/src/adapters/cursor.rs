@@ -15,19 +15,27 @@ impl CursorAdapter {
     fn candidate_dirs() -> Vec<PathBuf> {
         let mut dirs = Vec::new();
         if let Some(home) = crate::adapters::user_home() {
+            // macOS / Linux general .cursor dotfolder
             let p_cursor = home.join(".cursor");
             if p_cursor.exists() {
                 dirs.push(p_cursor);
             }
+            // macOS Application Support
             let p_mac = home.join("Library/Application Support/Cursor");
             if p_mac.exists() {
                 dirs.push(p_mac);
             }
+            let p_mac_nightly = home.join("Library/Application Support/Cursor - Nightly");
+            if p_mac_nightly.exists() {
+                dirs.push(p_mac_nightly);
+            }
+            // Linux .config
             let p_linux = home.join(".config").join("Cursor");
             if p_linux.exists() {
                 dirs.push(p_linux);
             }
         }
+        // Windows APPDATA
         if let Ok(appdata) = std::env::var("APPDATA") {
             let p_win = PathBuf::from(appdata).join("Cursor");
             if p_win.exists() {
@@ -35,6 +43,51 @@ impl CursorAdapter {
             }
         }
         dirs
+    }
+
+    /// Extract local workspace folder from workspace.json
+    fn resolve_workspace_path(folder_path: &Path) -> (String, String) {
+        let ws_json = folder_path.join("workspace.json");
+        if ws_json.exists() {
+            if let Ok(content) = fs::read_to_string(&ws_json) {
+                if let Ok(val) = serde_json::from_str::<Value>(&content) {
+                    if let Some(raw_uri) = val.get("folder").or_else(|| val.get("workspace")).and_then(Value::as_str) {
+                        let clean = raw_uri.strip_prefix("file://").unwrap_or(raw_uri);
+                        let decoded = urlencoding::decode(clean).unwrap_or(std::borrow::Cow::Borrowed(clean)).to_string();
+                        #[cfg(target_os = "windows")]
+                        let decoded = if decoded.starts_with('/') && decoded.chars().nth(2) == Some(':') {
+                            decoded[1..].to_string()
+                        } else {
+                            decoded
+                        };
+                        let dir_name = Path::new(&decoded)
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string();
+                        return (decoded, dir_name);
+                    }
+                }
+            }
+        }
+        (String::new(), String::new())
+    }
+
+    /// Helper to query value from SQLite checking ItemTable or cursorDiskKV
+    fn query_sqlite_key(conn: &Connection, key: &str) -> Option<String> {
+        let sql_item = "SELECT value FROM ItemTable WHERE key = ?1";
+        if let Ok(mut stmt) = conn.prepare(sql_item) {
+            if let Ok(val) = stmt.query_row([key], |row| row.get(0)) {
+                return Some(val);
+            }
+        }
+        let sql_disk = "SELECT value FROM cursorDiskKV WHERE key = ?1";
+        if let Ok(mut stmt) = conn.prepare(sql_disk) {
+            if let Ok(val) = stmt.query_row([key], |row| row.get(0)) {
+                return Some(val);
+            }
+        }
+        None
     }
 }
 
@@ -57,17 +110,20 @@ impl AgentAdapter for CursorAdapter {
         let mut seen_ids = HashSet::new();
 
         for root in roots {
-            // 1. Scan projects/**/agent-transcripts/*.jsonl
-            let projects_dir = root.join("projects");
-            if projects_dir.exists() {
-                for entry in walkdir::WalkDir::new(&projects_dir).into_iter().flatten() {
+            // 1. Scan projects/**/agent-transcripts/*.jsonl and transcripts/*.jsonl
+            let scan_dirs = [root.join("projects"), root.join("transcripts"), root.clone()];
+            for base_dir in scan_dirs {
+                if !base_dir.exists() {
+                    continue;
+                }
+                for entry in walkdir::WalkDir::new(&base_dir).into_iter().flatten() {
                     let path = entry.path();
                     if !path.is_file() || path.extension().map_or(true, |ext| ext != "jsonl") {
                         continue;
                     }
 
                     let path_str = path.to_string_lossy();
-                    if !path_str.contains("agent-transcripts") {
+                    if !path_str.contains("agent-transcripts") && !path_str.contains("transcripts") {
                         continue;
                     }
 
@@ -123,16 +179,26 @@ impl AgentAdapter for CursorAdapter {
                         }
                     }
 
+                    let dirname = if !cwd.is_empty() {
+                        Path::new(&cwd)
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string()
+                    } else {
+                        String::new()
+                    };
+
                     if title.is_empty() {
-                        title = format!("Cursor 会话 {}", &raw_id[..raw_id.len().min(8)]);
+                        title = format!("Cursor Agent {}", &raw_id[..raw_id.len().min(8)]);
                     }
 
                     let main_path_str = path.to_string_lossy().to_string();
                     summaries.push(SessionSummary {
                         id: raw_id,
                         platform: "cursor".to_string(),
-                        flavor: "cursor".to_string(),
-                        dirname: cwd.clone(),
+                        flavor: "agent".to_string(),
+                        dirname,
                         main_path: main_path_str.clone(),
                         all_paths: vec![main_path_str],
                         cwd,
@@ -150,69 +216,134 @@ impl AgentAdapter for CursorAdapter {
                 }
             }
 
-            // 2. Scan workspaceStorage/*/state.vscdb
+            // 2. Scan workspaceStorage/*/state.vscdb and globalStorage/state.vscdb
+            let mut db_targets = Vec::new();
             let storage_dir = root.join("User").join("workspaceStorage");
             if storage_dir.exists() {
                 if let Ok(entries) = fs::read_dir(&storage_dir) {
                     for entry in entries.flatten() {
-                        let db_path = entry.path().join("state.vscdb");
-                        if !db_path.exists() {
-                            continue;
+                        let path = entry.path();
+                        let db_path = path.join("state.vscdb");
+                        if db_path.exists() {
+                            let (cwd, dirname) = Self::resolve_workspace_path(&path);
+                            db_targets.push((db_path, cwd, dirname));
                         }
+                    }
+                }
+            }
 
-                        if let Ok(conn) = Connection::open_with_flags(
-                            &db_path,
-                            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-                        ) {
-                            let mut stmt = match conn.prepare("SELECT value FROM ItemTable WHERE key = 'composer.composerData'") {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
+            let global_db = root.join("User").join("globalStorage").join("state.vscdb");
+            if global_db.exists() {
+                db_targets.push((global_db, String::new(), String::new()));
+            }
 
-                            let composer_data_res: rusqlite::Result<String> = stmt.query_row([], |row| row.get(0));
-                            if let Ok(json_str) = composer_data_res {
-                                if let Ok(val) = serde_json::from_str::<Value>(&json_str) {
-                                    if let Some(composers) = val.get("allComposers").and_then(Value::as_array) {
-                                        for comp in composers {
-                                            let cid = comp.get("composerId").and_then(Value::as_str).unwrap_or("");
-                                            if cid.is_empty() || seen_ids.contains(cid) {
-                                                continue;
-                                            }
-                                            seen_ids.insert(cid.to_string());
+            for (db_path, cwd, dirname) in db_targets {
+                let conn = match Connection::open_with_flags(
+                    &db_path,
+                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+                ) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
 
-                                            let name = comp.get("name").and_then(Value::as_str).unwrap_or("");
-                                            let created_ms = comp.get("createdAt").and_then(Value::as_i64).unwrap_or(0);
-                                            let created_sec = if created_ms > 0 { created_ms / 1000 } else { chrono::Utc::now().timestamp() };
+                let db_size = fs::metadata(&db_path).map(|m| m.len()).unwrap_or(4096);
+                let db_path_str = db_path.to_string_lossy().to_string();
 
-                                            let title = if !name.is_empty() {
-                                                name.to_string()
-                                            } else {
-                                                format!("Cursor 会话 {}", &cid[..cid.len().min(8)])
-                                            };
-
-                                            let main_path_str = db_path.to_string_lossy().to_string();
-                                            summaries.push(SessionSummary {
-                                                id: cid.to_string(),
-                                                platform: "cursor".to_string(),
-                                                flavor: "composer".to_string(),
-                                                dirname: String::new(),
-                                                main_path: main_path_str.clone(),
-                                                all_paths: vec![main_path_str],
-                                                cwd: String::new(),
-                                                title,
-                                                created_at: created_sec,
-                                                updated_at: created_sec,
-                                                size_bytes: 4096,
-                                                turn_count: 1,
-                                                is_subagent: false,
-                                                parent_id: None,
-                                                is_running: false,
-                                                has_transcript: true,
-                                                token_stats: None,
-                                            });
-                                        }
-                                    }
+                // (A) Scan Composer Data
+                if let Some(json_str) = Self::query_sqlite_key(&conn, "composer.composerData") {
+                    if let Ok(val) = serde_json::from_str::<Value>(&json_str) {
+                        if let Some(composers) = val.get("allComposers").and_then(Value::as_array) {
+                            for comp in composers {
+                                let cid = comp.get("composerId").and_then(Value::as_str).unwrap_or("");
+                                if cid.is_empty() || seen_ids.contains(cid) {
+                                    continue;
                                 }
+                                seen_ids.insert(cid.to_string());
+
+                                let name = comp.get("name").and_then(Value::as_str).unwrap_or("");
+                                let created_ms = comp.get("createdAt").and_then(Value::as_i64).unwrap_or(0);
+                                let created_sec = if created_ms > 0 { created_ms / 1000 } else { chrono::Utc::now().timestamp() };
+
+                                let turn_count = comp.get("conversation")
+                                    .and_then(Value::as_array)
+                                    .map(|arr| arr.len() as u32)
+                                    .unwrap_or(1);
+
+                                let title = if !name.is_empty() {
+                                    name.to_string()
+                                } else if !dirname.is_empty() {
+                                    format!("{}: Composer {}", dirname, &cid[..cid.len().min(6)])
+                                } else {
+                                    format!("Composer 会话 {}", &cid[..cid.len().min(8)])
+                                };
+
+                                summaries.push(SessionSummary {
+                                    id: cid.to_string(),
+                                    platform: "cursor".to_string(),
+                                    flavor: "composer".to_string(),
+                                    dirname: dirname.clone(),
+                                    main_path: db_path_str.clone(),
+                                    all_paths: vec![db_path_str.clone()],
+                                    cwd: cwd.clone(),
+                                    title,
+                                    created_at: created_sec,
+                                    updated_at: created_sec,
+                                    size_bytes: db_size,
+                                    turn_count,
+                                    is_subagent: false,
+                                    parent_id: None,
+                                    is_running: false,
+                                    has_transcript: true,
+                                    token_stats: None,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // (B) Scan Chat Data (workbench.panel.aichat.chatdata)
+                if let Some(json_str) = Self::query_sqlite_key(&conn, "workbench.panel.aichat.chatdata") {
+                    if let Ok(val) = serde_json::from_str::<Value>(&json_str) {
+                        if let Some(tabs) = val.get("tabs").and_then(Value::as_array) {
+                            for tab in tabs {
+                                let tid = tab.get("tabId").and_then(Value::as_str).unwrap_or("");
+                                if tid.is_empty() || seen_ids.contains(tid) {
+                                    continue;
+                                }
+                                seen_ids.insert(tid.to_string());
+
+                                let chat_title = tab.get("chatTitle").and_then(Value::as_str).unwrap_or("");
+                                let bubbles = tab.get("bubbles").and_then(Value::as_array);
+                                let turn_count = bubbles.map(|b| b.len() as u32).unwrap_or(1);
+
+                                let title = if !chat_title.is_empty() {
+                                    chat_title.to_string()
+                                } else if !dirname.is_empty() {
+                                    format!("{}: Chat {}", dirname, &tid[..tid.len().min(6)])
+                                } else {
+                                    format!("Cursor 对话 {}", &tid[..tid.len().min(8)])
+                                };
+
+                                let now_sec = chrono::Utc::now().timestamp();
+                                summaries.push(SessionSummary {
+                                    id: tid.to_string(),
+                                    platform: "cursor".to_string(),
+                                    flavor: "chat".to_string(),
+                                    dirname: dirname.clone(),
+                                    main_path: db_path_str.clone(),
+                                    all_paths: vec![db_path_str.clone()],
+                                    cwd: cwd.clone(),
+                                    title,
+                                    created_at: now_sec,
+                                    updated_at: now_sec,
+                                    size_bytes: db_size,
+                                    turn_count,
+                                    is_subagent: false,
+                                    parent_id: None,
+                                    is_running: false,
+                                    has_transcript: true,
+                                    token_stats: None,
+                                });
                             }
                         }
                     }
@@ -265,26 +396,69 @@ impl AgentAdapter for CursorAdapter {
                 path,
                 OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
             ) {
-                if let Ok(mut stmt) = conn.prepare("SELECT value FROM ItemTable WHERE key = 'composer.composerData'") {
-                    let json_res: rusqlite::Result<String> = stmt.query_row([], |row| row.get(0));
-                    if let Ok(json_str) = json_res {
+                // Check Composer Data
+                if session.flavor == "composer" || session.flavor.is_empty() {
+                    if let Some(json_str) = Self::query_sqlite_key(&conn, "composer.composerData") {
                         if let Ok(val) = serde_json::from_str::<Value>(&json_str) {
                             if let Some(composers) = val.get("allComposers").and_then(Value::as_array) {
                                 for comp in composers {
                                     if comp.get("composerId").and_then(Value::as_str) == Some(&session.id) {
                                         if let Some(conv) = comp.get("conversation").and_then(Value::as_array) {
                                             for turn in conv {
-                                                let role = turn.get("type").and_then(Value::as_str).unwrap_or("user");
-                                                let text = turn.get("text").and_then(Value::as_str).unwrap_or("");
+                                                let role_code = turn.get("type").and_then(Value::as_str).unwrap_or("1");
+                                                let text = turn.get("text")
+                                                    .or_else(|| turn.get("richText"))
+                                                    .and_then(Value::as_str)
+                                                    .unwrap_or("");
                                                 if !text.is_empty() {
                                                     msgs.push(ChatMessage {
-                                                        role: if role == "2" { "assistant".to_string() } else { "user".to_string() },
+                                                        role: if role_code == "2" { "assistant".to_string() } else { "user".to_string() },
                                                         text: text.to_string(),
                                                         time: String::new(),
                                                         msg_type: "text".to_string(),
                                                         thinking: None,
                                                         tool_calls: Vec::new(),
                                                     });
+                                                }
+                                                if msgs.len() >= max_msgs {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check AI Chat Data
+                if msgs.is_empty() && (session.flavor == "chat" || session.flavor.is_empty()) {
+                    if let Some(json_str) = Self::query_sqlite_key(&conn, "workbench.panel.aichat.chatdata") {
+                        if let Ok(val) = serde_json::from_str::<Value>(&json_str) {
+                            if let Some(tabs) = val.get("tabs").and_then(Value::as_array) {
+                                for tab in tabs {
+                                    if tab.get("tabId").and_then(Value::as_str) == Some(&session.id) {
+                                        if let Some(bubbles) = tab.get("bubbles").and_then(Value::as_array) {
+                                            for b in bubbles {
+                                                let b_type = b.get("type").and_then(Value::as_str).unwrap_or("user");
+                                                let text = b.get("rawText")
+                                                    .or_else(|| b.get("text"))
+                                                    .and_then(Value::as_str)
+                                                    .unwrap_or("");
+                                                if !text.is_empty() {
+                                                    msgs.push(ChatMessage {
+                                                        role: if b_type == "ai" { "assistant".to_string() } else { "user".to_string() },
+                                                        text: text.to_string(),
+                                                        time: String::new(),
+                                                        msg_type: "text".to_string(),
+                                                        thinking: None,
+                                                        tool_calls: Vec::new(),
+                                                    });
+                                                }
+                                                if msgs.len() >= max_msgs {
+                                                    break;
                                                 }
                                             }
                                         }

@@ -177,7 +177,7 @@
         cliCmd = `qoder resume "${s.id}"`;
         break;
       case "cursor":
-        cliCmd = `cursor`;
+        cliCmd = s.cwd || s.dirname ? "cursor ." : "cursor";
         break;
       case "codebuddy":
         cliCmd = `codebuddy --resume "${s.id}"`;
