@@ -1,6 +1,7 @@
 {
   "name": "agent-session-manager",
   "version": "0.1.0",
+  "packageManager": "pnpm@10.27.0",
   "description": "",
   "type": "module",
   "scripts": {
