@@ -613,39 +613,45 @@
         </button>
       </div>
 
-      <!-- Right: Action area according to active tab -->
-      {#if activeTab === "chat"}
-        <div class="flex items-center gap-2">
-          <div class="relative w-52 sm:w-60">
-            <Search class="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-            <input
-              type="text"
-              bind:value={inChatSearch}
-              placeholder={t("search_chat")}
-              class="w-full bg-white border border-slate-200/90 focus:border-sky-500 rounded-lg pl-7.5 pr-6 py-1 text-[11px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-500 transition shadow-2xs"
-            />
-            {#if inChatSearch}
-              <button
-                onclick={() => (inChatSearch = "")}
-                class="absolute right-1.5 top-1.5 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-                title={t("clear_search")}
-              >
-                <X class="h-3 w-3" />
-              </button>
-            {/if}
-          </div>
+      <!-- Right: Platform Info & Flavor -->
+      <div class="text-[11px] text-slate-500 font-mono flex items-center gap-1.5">
+        <span>{session.platform}</span>
+        {#if session.flavor}
+          <span class="text-slate-300">/</span>
+          <span class="text-slate-400">{session.flavor}</span>
+        {/if}
+      </div>
+    </div>
+
+    <!-- Row 2: In-Chat Search Bar (Dedicated Sub-header) -->
+    {#if activeTab === "chat"}
+      <div class="px-5 py-1.5 bg-white/70 border-b border-slate-200/70 flex items-center justify-between gap-3 shrink-0">
+        <div class="relative flex-1 max-w-sm">
+          <Search class="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            bind:value={inChatSearch}
+            placeholder={t("search_chat")}
+            class="w-full bg-slate-50/80 hover:bg-white focus:bg-white border border-slate-200/90 focus:border-sky-500 rounded-lg pl-7.5 pr-7 py-1 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-500 transition shadow-2xs"
+          />
           {#if inChatSearch}
-            <span class="text-[10px] text-sky-700 font-mono shrink-0">
-              {t("matched_messages", { n: visibleMessages.length })}
-            </span>
+            <button
+              onclick={() => (inChatSearch = "")}
+              class="absolute right-2 top-1.5 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+              title={t("clear_search")}
+            >
+              <X class="h-3 w-3" />
+            </button>
           {/if}
         </div>
-      {:else}
-        <div class="text-[11px] text-slate-500 font-mono">
-          <span>{session.platform} / {session.flavor || "default"}</span>
-        </div>
-      {/if}
-    </div>
+
+        {#if inChatSearch}
+          <span class="text-[11px] text-sky-700 bg-sky-50 border border-sky-200/80 px-2 py-0.5 rounded-md font-mono shrink-0">
+            {t("matched_messages", { n: visibleMessages.length })}
+          </span>
+        {/if}
+      </div>
+    {/if}
 
     {#if activeTab === "chat"}
       <!-- Chat Timeline Stream (Occupies 85%+ screen height) -->
