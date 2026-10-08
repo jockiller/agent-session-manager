@@ -60,12 +60,20 @@ jobs:
         run: pnpm build
 
       - name: macOS Code Signing Preparation (macOS only)
-        if: matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE != ''
+        if: matrix.platform == 'macos-latest'
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          echo "Apple Certificate detected, exporting environment variables..."
-          echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}" >> $GITHUB_ENV
-          echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" >> $GITHUB_ENV
-          echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> $GITHUB_ENV
+          if [ -n "$CERT" ]; then
+            echo "Apple Certificate detected, exporting environment variables..."
+            echo "APPLE_CERTIFICATE=$CERT" >> $GITHUB_ENV
+            echo "APPLE_CERTIFICATE_PASSWORD=$PASS" >> $GITHUB_ENV
+            echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> $GITHUB_ENV
+          else
+            echo "No Apple Certificate configured, using default Ad-hoc signing."
+          fi
 
       - name: Build Tauri Application
         uses: tauri-apps/tauri-action@v0
