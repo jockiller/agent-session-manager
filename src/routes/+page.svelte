@@ -143,8 +143,8 @@
           if (s.updated_at < startOfYesterday || s.updated_at >= startOfToday) return false;
         }
         if (selectedTimeRange === "3d" && now - s.updated_at > 3 * dayMs) return false;
-        if (selectedTimeRange === "7d" && now - s.updated_at > 7 * dayMs) return false;
-        if (selectedTimeRange === "30d" && now - s.updated_at > 30 * dayMs) return false;
+        if (selectedTimeRange === "7d" && now - s.updated_at <= 7 * dayMs) return false;
+        if (selectedTimeRange === "30d" && now - s.updated_at <= 30 * dayMs) return false;
         if (selectedTimeRange === "older30d" && now - s.updated_at <= 30 * dayMs) return false;
       }
 

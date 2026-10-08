@@ -212,16 +212,16 @@
       customEndDate = todayStr;
     } else if (presetId === "7d") {
       const d = new Date();
-      d.setDate(d.getDate() - 6);
+      d.setDate(d.getDate() - 7);
       selectedTimeRange = "7d";
-      customStartDate = toLocalDateString(d);
-      customEndDate = todayStr;
+      customStartDate = "";
+      customEndDate = toLocalDateString(d);
     } else if (presetId === "30d") {
       const d = new Date();
-      d.setDate(d.getDate() - 29);
+      d.setDate(d.getDate() - 30);
       selectedTimeRange = "30d";
-      customStartDate = toLocalDateString(d);
-      customEndDate = todayStr;
+      customStartDate = "";
+      customEndDate = toLocalDateString(d);
     }
   }
 
@@ -247,17 +247,17 @@
     d3.setDate(d3.getDate() - 2);
     const d3Str = toLocalDateString(d3);
     const d7 = new Date();
-    d7.setDate(d7.getDate() - 6);
+    d7.setDate(d7.getDate() - 7);
     const d7Str = toLocalDateString(d7);
     const d30 = new Date();
-    d30.setDate(d30.getDate() - 29);
+    d30.setDate(d30.getDate() - 30);
     const d30Str = toLocalDateString(d30);
 
     if (customStartDate === todayStr && customEndDate === todayStr) return "today";
     if (customStartDate === yStr && customEndDate === yStr) return "yesterday";
     if (customStartDate === d3Str && customEndDate === todayStr) return "3d";
-    if (customStartDate === d7Str && customEndDate === todayStr) return "7d";
-    if (customStartDate === d30Str && customEndDate === todayStr) return "30d";
+    if (!customStartDate && customEndDate === d7Str) return "7d";
+    if (!customStartDate && customEndDate === d30Str) return "30d";
     return "custom";
   });
 
