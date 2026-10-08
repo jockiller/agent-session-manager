@@ -103,22 +103,22 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <aside class="w-56 shrink-0 h-full bg-slate-50/95 border-r border-slate-200/90 flex flex-col overflow-hidden select-none">
-  <!-- Top: Optimized Refresh Action -->
-  <div class="p-2 border-b border-slate-200/80 shrink-0">
+  <!-- Top: Primary Action Refresh Header -->
+  <div class="p-2 border-b border-slate-200/80 shrink-0 bg-slate-100/40">
     <button
       type="button"
       onclick={onRefresh}
       disabled={isLoading}
-      class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100/90 active:bg-slate-200/60 border border-slate-200/90 hover:border-slate-300 shadow-2xs text-xs font-medium text-slate-700 hover:text-slate-900 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group select-none"
+      class="w-full flex items-center justify-between px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white shadow-xs hover:shadow-sm text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group select-none"
       title={t("rescan_tooltip")}
     >
       <div class="flex items-center gap-2">
-        <RefreshCw class="h-3.5 w-3.5 text-slate-500 group-hover:text-sky-600 transition-colors {isLoading ? 'animate-spin text-sky-600' : 'group-hover:rotate-180 transition-transform duration-500'}" />
-        <span class="font-medium text-slate-700 group-hover:text-slate-900">
+        <RefreshCw class="h-3.5 w-3.5 text-white/90 group-hover:text-white transition-colors {isLoading ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}" />
+        <span class="tracking-tight text-white">
           {isLoading ? t("refreshing") : t("refresh_sessions")}
         </span>
       </div>
-      <kbd class="text-[10px] font-mono text-slate-400 group-hover:text-slate-600 bg-slate-50 group-hover:bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80 transition">
+      <kbd class="text-[10px] font-mono text-sky-100 group-hover:text-white bg-sky-700/60 group-hover:bg-sky-700/90 px-1.5 py-0.5 rounded transition">
         {isMac ? "⌘R" : "Ctrl+R"}
       </kbd>
     </button>
