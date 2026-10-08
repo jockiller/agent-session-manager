@@ -63,6 +63,20 @@ async function packageMac() {
   const appDir = path.join(projectRoot, 'src-tauri/target/release/bundle/macos');
   const dmgDir = path.join(projectRoot, 'src-tauri/target/release/bundle/dmg');
 
+  // 查找并拷贝 .app
+  if (fs.existsSync(appDir)) {
+    const apps = fs.readdirSync(appDir).filter(f => f.endsWith('.app'));
+    for (const app of apps) {
+      const srcApp = path.join(appDir, app);
+      const destApp = path.join(releaseDir, app);
+      if (fs.existsSync(destApp)) {
+        fs.rmSync(destApp, { recursive: true, force: true });
+      }
+      run('cp', ['-R', srcApp, destApp]);
+      console.log(`  ✓ 已拷贝 App: release/${app}`);
+    }
+  }
+
   // 查找 .dmg
   if (fs.existsSync(dmgDir)) {
     const dmgs = fs.readdirSync(dmgDir).filter(f => f.endsWith('.dmg'));
