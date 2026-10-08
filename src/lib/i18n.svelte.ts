@@ -62,6 +62,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     matched_count: "匹配 {n} 个",
     no_matching_platforms: "未找到匹配平台",
     rescan_tooltip: "重新扫描各平台会话",
+    refresh_sessions: "刷新会话",
+    refreshing: "正在扫描...",
     clear_search: "清空搜索",
 
     // Session List
@@ -256,6 +258,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     matched_count: "匹配 {n} 個",
     no_matching_platforms: "未找到匹配平台",
     rescan_tooltip: "重新掃描各平台會話",
+    refresh_sessions: "重新整理會話",
+    refreshing: "正在掃描...",
     clear_search: "清空搜尋",
 
     // Session List
@@ -450,6 +454,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     matched_count: "{n} matched",
     no_matching_platforms: "No matching platforms",
     rescan_tooltip: "Rescan all agent sessions",
+    refresh_sessions: "Refresh",
+    refreshing: "Scanning...",
     clear_search: "Clear search",
 
     // Session List
@@ -644,6 +650,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     matched_count: "{n}件一致",
     no_matching_platforms: "一致するプラットフォームなし",
     rescan_tooltip: "全セッションを再スキャン",
+    refresh_sessions: "セッション更新",
+    refreshing: "スキャン中...",
     clear_search: "検索をクリア",
 
     // Session List
@@ -838,6 +846,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     matched_count: "{n}개 일치",
     no_matching_platforms: "일치하는 플랫폼 없음",
     rescan_tooltip: "모든 세션 다시 스캔",
+    refresh_sessions: "세션 새로고침",
+    refreshing: "스캔 중...",
     clear_search: "검색 지우기",
 
     // Session List

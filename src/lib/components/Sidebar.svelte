@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import {
     Layers,
     RefreshCw,
@@ -81,23 +82,45 @@
       );
     });
   });
+
+  let isMac = $state(true);
+  onMount(() => {
+    if (typeof navigator !== "undefined") {
+      isMac = /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent);
+    }
+  });
+
+  function handleWindowKeydown(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
+      e.preventDefault();
+      if (!isLoading) {
+        onRefresh();
+      }
+    }
+  }
 </script>
 
-<aside class="w-56 shrink-0 h-full bg-slate-50/95 border-r border-slate-200/90 flex flex-col overflow-hidden select-none">
-  <!-- Top: Brand Header & Refresh -->
-  <div class="px-3.5 py-2.5 border-b border-slate-200/80 flex items-center justify-between shrink-0">
-    <div class="flex items-center">
-      <img src="/logo.png" alt="Agent Session Manager" class="h-7 w-7 rounded-lg shadow-2xs shrink-0 select-none" />
-    </div>
+<svelte:window onkeydown={handleWindowKeydown} />
 
-    <!-- Quick refresh button -->
+<aside class="w-56 shrink-0 h-full bg-slate-50/95 border-r border-slate-200/90 flex flex-col overflow-hidden select-none">
+  <!-- Top: Optimized Refresh Action -->
+  <div class="p-2 border-b border-slate-200/80 shrink-0">
     <button
+      type="button"
       onclick={onRefresh}
       disabled={isLoading}
-      class="p-1.5 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 disabled:opacity-40 transition cursor-pointer"
+      class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100/90 active:bg-slate-200/60 border border-slate-200/90 hover:border-slate-300 shadow-2xs text-xs font-medium text-slate-700 hover:text-slate-900 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group select-none"
       title={t("rescan_tooltip")}
     >
-      <RefreshCw class="h-3.5 w-3.5 {isLoading ? 'animate-spin text-sky-600' : ''}" />
+      <div class="flex items-center gap-2">
+        <RefreshCw class="h-3.5 w-3.5 text-slate-500 group-hover:text-sky-600 transition-colors {isLoading ? 'animate-spin text-sky-600' : 'group-hover:rotate-180 transition-transform duration-500'}" />
+        <span class="font-medium text-slate-700 group-hover:text-slate-900">
+          {isLoading ? t("refreshing") : t("refresh_sessions")}
+        </span>
+      </div>
+      <kbd class="text-[10px] font-mono text-slate-400 group-hover:text-slate-600 bg-slate-50 group-hover:bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80 transition">
+        {isMac ? "⌘R" : "Ctrl+R"}
+      </kbd>
     </button>
   </div>
 
