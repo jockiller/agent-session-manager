@@ -44,6 +44,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     app_subtitle: "多 Agent 会话管理工作台",
     sessions_suffix: "会话",
     lang_switcher: "界面语言",
+    about_app: "关于软件",
+    about_desc: "一站式 AI 编程智能体与终端助手会话管理控制台",
+    about_version: "版本",
+    open_github: "访问 GitHub 仓库",
+    supported_ecosystem: "支持 18+ 款主流 AI 智能体生态",
 
     // Sidebar
     session_views: "会话视图",
@@ -233,6 +238,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     app_subtitle: "多 Agent 會話管理工作台",
     sessions_suffix: "會話",
     lang_switcher: "介面語言",
+    about_app: "關於軟體",
+    about_desc: "一站式 AI 編程智能體與終端助手會話管理控制台",
+    about_version: "版本",
+    open_github: "造訪 GitHub 倉庫",
+    supported_ecosystem: "支援 18+ 款主流 AI 智能體生態",
 
     // Sidebar
     session_views: "會話視圖",
@@ -422,6 +432,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     app_subtitle: "Multi-Agent Session Deck",
     sessions_suffix: "sessions",
     lang_switcher: "Language",
+    about_app: "About",
+    about_desc: "Unified Control Center for AI Agent CLI & Assistant Sessions",
+    about_version: "Version",
+    open_github: "View on GitHub",
+    supported_ecosystem: "Supports 18+ AI Agent Ecosystems",
 
     // Sidebar
     session_views: "VIEWS",
@@ -611,6 +626,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     app_subtitle: "マルチエージェント管理デッキ",
     sessions_suffix: "セッション",
     lang_switcher: "言語切替",
+    about_app: "バージョン情報",
+    about_desc: "AI コーディングエージェント統合セッション管理ツール",
+    about_version: "バージョン",
+    open_github: "GitHub リポジトリを開く",
+    supported_ecosystem: "18 以上の AI エージェントをサポート",
 
     // Sidebar
     session_views: "セッションビュー",
@@ -800,6 +820,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     app_subtitle: "멀티 에이전트 세션 관리자",
     sessions_suffix: "세션",
     lang_switcher: "언어 변경",
+    about_app: "프로그램 정보",
+    about_desc: "AI 코딩 에이전트 통합 세션 관리 컨트롤 센터",
+    about_version: "버전",
+    open_github: "GitHub 저장소 방문",
+    supported_ecosystem: "18개 이상의 AI 에이전트 플랫폼 지원",
 
     // Sidebar
     session_views: "세션 보기",

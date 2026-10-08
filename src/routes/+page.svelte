@@ -6,7 +6,8 @@
   import SessionList from "$lib/components/SessionList.svelte";
   import SessionInspector from "$lib/components/SessionInspector.svelte";
   import CleanupModal from "$lib/components/CleanupModal.svelte";
-  import { Star, Download, Trash2, X, Globe } from "@lucide/svelte";
+  import AboutModal from "$lib/components/AboutModal.svelte";
+  import { Star, Download, Trash2, X, Globe, Info } from "@lucide/svelte";
   import { formatTokens, parseLocalDateStart, parseLocalDateEnd } from "$lib/utils";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t, i18n, supportedLocales, type Locale } from "$lib/i18n";
@@ -57,6 +58,7 @@
   let isLoadingMessages = $state(false);
   let showCleanupModal = $state(false);
   let isCleaningModal = $state(false);
+  let showAboutModal = $state(false);
 
   // Workspaces list
   let workspaces = $derived(
@@ -459,6 +461,17 @@
           {/each}
         </select>
       </div>
+
+      <!-- Info / About Button -->
+      <button
+        type="button"
+        onclick={() => (showAboutModal = true)}
+        class="flex items-center justify-center p-1 rounded-md hover:bg-slate-200/80 text-slate-500 hover:text-slate-900 transition cursor-pointer border border-transparent hover:border-slate-300/60 shadow-2xs shrink-0"
+        style="-webkit-app-region: no-drag; pointer-events: auto;"
+        title={t("about_app")}
+      >
+        <Info class="h-3.5 w-3.5 text-slate-500 hover:text-sky-600 transition" />
+      </button>
     </div>
   </div>
 
@@ -560,5 +573,11 @@
     isCleaning={isCleaningModal}
     onClose={() => (showCleanupModal = false)}
     onConfirm={handleConfirmCleanup}
+  />
+
+  <!-- About App Modal -->
+  <AboutModal
+    isOpen={showAboutModal}
+    onClose={() => (showAboutModal = false)}
   />
 </div>
