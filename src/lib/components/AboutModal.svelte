@@ -13,7 +13,7 @@
   } = $props();
 
   const repoUrl = "https://github.com/jockiller/agent-session-manager";
-  let appVersion = $state("0.1.1");
+  let appVersion = $state("0.1.2");
 
   $effect(() => {
     getVersion()

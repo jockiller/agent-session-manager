@@ -4,6 +4,7 @@
     Clock,
     CheckSquare,
     Square,
+    MinusSquare,
     AlertCircle,
     ChevronDown,
     ChevronRight,
@@ -150,13 +151,90 @@
     allVisibleSessions.filter((s) => selectedIds.has(s.id)).length
   );
 
+  // Map parent session ID to its direct subagents' IDs
+  let subagentIdsByParent = $derived.by(() => {
+    const map = new Map<string, string[]>();
+
+    for (const s of allSessions) {
+      if (s.is_subagent && s.parent_id) {
+        const list = map.get(s.parent_id) || [];
+        if (!list.includes(s.id)) {
+          list.push(s.id);
+        }
+        map.set(s.parent_id, list);
+      }
+    }
+
+    for (const node of treeNodes) {
+      if (node.subagents && node.subagents.length > 0) {
+        const list = map.get(node.session.id) || [];
+        for (const sub of node.subagents) {
+          if (!list.includes(sub.id)) {
+            list.push(sub.id);
+          }
+        }
+        map.set(node.session.id, list);
+      }
+    }
+
+    return map;
+  });
+
+  // Recursively collect all descendant subagent IDs of a session
+  function getAllDescendantIds(parentId: string): string[] {
+    const result: string[] = [];
+    const visited = new Set<string>();
+
+    function collect(pId: string) {
+      const subs = subagentIdsByParent.get(pId) || [];
+      for (const subId of subs) {
+        if (!visited.has(subId)) {
+          visited.add(subId);
+          result.push(subId);
+          collect(subId);
+        }
+      }
+    }
+
+    collect(parentId);
+    return result;
+  }
+
+  // Get selection state of a session and its subagents ("all" | "none" | "partial")
+  function getSelectionState(sessionId: string): "all" | "none" | "partial" {
+    const isSelfSelected = selectedIds.has(sessionId);
+    const subIds = getAllDescendantIds(sessionId);
+    if (subIds.length === 0) {
+      return isSelfSelected ? "all" : "none";
+    }
+    const selectedSubCount = subIds.filter((id) => selectedIds.has(id)).length;
+    if (isSelfSelected && selectedSubCount === subIds.length) {
+      return "all";
+    }
+    if (!isSelfSelected && selectedSubCount === 0) {
+      return "none";
+    }
+    return "partial";
+  }
+
   function toggleSelect(id: string, e: Event) {
     e.stopPropagation();
     const next = new Set(selectedIds);
-    if (next.has(id)) {
+    const subIds = getAllDescendantIds(id);
+    const currentState = getSelectionState(id);
+
+    if (currentState === "all") {
+      // Uncheck session and all its subagent sessions
       next.delete(id);
+      for (const subId of subIds) {
+        next.delete(subId);
+      }
     } else {
+      // Check session and automatically check all its subagent sessions
       next.add(id);
+      for (const subId of subIds) {
+        next.add(subId);
+      }
     }
     selectedIds = next;
   }
@@ -353,7 +431,7 @@
             <CheckSquare class="h-3.5 w-3.5 text-sky-600 shrink-0" />
             <span class="text-[11px] font-semibold text-sky-700 whitespace-nowrap">{t("select_all")} ({allVisibleSessions.length})</span>
           {:else if selectedVisibleCount > 0}
-            <Square class="h-3.5 w-3.5 text-sky-600 shrink-0" />
+            <MinusSquare class="h-3.5 w-3.5 text-sky-600 shrink-0" />
             <span class="text-[11px] font-semibold text-slate-800 whitespace-nowrap">{t("selected_count", { n: selectedVisibleCount })}/{allVisibleSessions.length}</span>
           {:else}
             <Square class="h-3.5 w-3.5 text-slate-400 shrink-0" />
@@ -648,8 +726,10 @@
                   class="text-slate-400 hover:text-sky-600 p-0.5 shrink-0"
                   title={t("checkbox_select_tip")}
                 >
-                  {#if selectedIds.has(node.session.id)}
+                  {#if getSelectionState(node.session.id) === "all"}
                     <CheckSquare class="h-3.5 w-3.5 text-sky-600" />
+                  {:else if getSelectionState(node.session.id) === "partial"}
+                    <MinusSquare class="h-3.5 w-3.5 text-sky-600" />
                   {:else}
                     <Square class="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-400" />
                   {/if}
@@ -843,8 +923,10 @@
                 onclick={(e) => toggleSelect(s.id, e)}
                 class="text-slate-400 hover:text-sky-600 p-0.5"
               >
-                {#if selectedIds.has(s.id)}
+                {#if getSelectionState(s.id) === "all"}
                   <CheckSquare class="h-3.5 w-3.5 text-sky-600" />
+                {:else if getSelectionState(s.id) === "partial"}
+                  <MinusSquare class="h-3.5 w-3.5 text-sky-600" />
                 {:else}
                   <Square class="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-400" />
                 {/if}

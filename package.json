@@ -1,6 +1,6 @@
 {
   "name": "agent-session-manager",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packageManager": "pnpm@10.27.0",
   "description": "Unified session manager & disk optimizer for AI coding agents (Claude Code, Cursor, Codex, OpenCode & more)",
   "type": "module",
