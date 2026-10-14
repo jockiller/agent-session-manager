@@ -141,7 +141,15 @@ impl AgentAdapter for ZCodeAdapter {
                             (SELECT json_extract(msg.data, '$.modelID') FROM message msg WHERE msg.session_id = s.id AND json_extract(msg.data, '$.modelID') IS NOT NULL ORDER BY msg.time_created DESC LIMIT 1),
                             'zcode'
                         ) as model_id,
-                        (SELECT COUNT(*) FROM message msg WHERE msg.session_id = s.id) as msg_count
+                        (SELECT COUNT(*) FROM message msg WHERE msg.session_id = s.id) as msg_count,
+                        (
+                            SELECT p2.data FROM part p2
+                            JOIN message m2 ON p2.message_id = m2.id
+                            WHERE p2.session_id = s.id AND m2.data LIKE '%"role":"user"%'
+                              AND (json_extract(p2.data, '$.type') = 'text' OR json_extract(p2.data, '$.type') IS NULL)
+                            ORDER BY m2.sequence ASC, m2.time_created ASC, p2.sequence ASC
+                            LIMIT 1
+                        ) as first_user_text
                     FROM session s
                     LEFT JOIN model_usage m ON s.id = m.session_id
                     GROUP BY s.id
@@ -166,6 +174,7 @@ impl AgentAdapter for ZCodeAdapter {
                             dur_ms: row.get(11)?,
                             model_id: row.get(12)?,
                             msg_count: row.get(13)?,
+                            first_user_text: row.get(14)?,
                         })
                     });
 
@@ -190,6 +199,17 @@ impl AgentAdapter for ZCodeAdapter {
         for id in all_ids {
             let task_opt = task_map.get(&id);
             let cli_opt = cli_map.get(&id);
+
+            let cli_first_prompt = cli_opt
+                .and_then(|c| c.first_user_text.as_deref())
+                .and_then(|raw| {
+                    let text = serde_json::from_str::<serde_json::Value>(raw)
+                        .ok()
+                        .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(|s| s.to_string()))
+                        .unwrap_or_else(|| raw.to_string());
+                    crate::adapters::make_first_prompt(&text)
+                })
+                .unwrap_or_default();
 
             let (title, cwd, created_at, updated_at, flavor, is_subagent, parent_id, turn_count, token_stats) = match (task_opt, cli_opt) {
                 (Some(t), Some(c)) => {
@@ -354,6 +374,7 @@ impl AgentAdapter for ZCodeAdapter {
                 all_paths,
                 cwd,
                 title,
+                first_prompt: cli_first_prompt,
                 created_at,
                 updated_at,
                 size_bytes,
@@ -659,4 +680,5 @@ struct CliSessionRow {
     dur_ms: i64,
     model_id: String,
     msg_count: i64,
+    first_user_text: Option<String>,
 }

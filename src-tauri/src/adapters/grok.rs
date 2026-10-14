@@ -80,6 +80,7 @@ impl AgentAdapter for GrokAdapter {
                         let prompt_ctx_file = spath.join("prompt_context.json");
 
                         let mut title = String::new();
+                        let mut first_prompt = String::new();
                         let cwd = ws_decoded.clone();
                         let mut model = "grok-build".to_string();
                         let mut created_at = 0i64;
@@ -168,6 +169,28 @@ impl AgentAdapter for GrokAdapter {
                         if title.is_empty() {
                             title = "(无标题)".to_string();
                         }
+                        if first_prompt.is_empty() && chat_file.exists() {
+                            let mut tracker = crate::adapters::FirstPromptTracker::default();
+                            if let Ok(f) = File::open(&chat_file) {
+                                let reader = BufReader::new(f);
+                                'outer: for line in reader.lines().flatten() {
+                                    let line = line.trim();
+                                    if line.is_empty() {
+                                        continue;
+                                    }
+                                    if let Ok(v) = serde_json::from_str::<Value>(line) {
+                                        if v.get("type").and_then(Value::as_str) == Some("user") {
+                                            if let Some(text) = crate::adapters::user_text_from_content(v.get("content").unwrap_or(&Value::Null)) {
+                                                if tracker.feed(&text) {
+                                                    break 'outer;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            first_prompt = tracker.finish();
+                        }
                         if updated_at == 0 {
                             if let Ok(m) = spath.metadata() {
                                 if let Ok(mtime) = m.modified() {
@@ -191,6 +214,7 @@ impl AgentAdapter for GrokAdapter {
                             all_paths: vec![spath.to_string_lossy().to_string()],
                             cwd,
                             title,
+                            first_prompt,
                             created_at,
                             updated_at,
                             size_bytes: total_size,

@@ -95,6 +95,7 @@ impl AgentAdapter for QoderAdapter {
                     .unwrap_or(0);
 
                 let mut title = String::new();
+                let mut first_prompt = String::new();
                 let mut cwd = String::new();
                 let created_at = mtime_sec;
                 let updated_at = mtime_sec;
@@ -117,18 +118,23 @@ impl AgentAdapter for QoderAdapter {
                                 }
                             }
 
-                            if title.is_empty() {
+                            if title.is_empty() || first_prompt.is_empty() {
                                 if let Some(msg) = val.get("message") {
                                     if let Some(content) = msg.get("content").and_then(Value::as_array) {
-                                        for item in content {
-                                            if item.get("type").and_then(Value::as_str) == Some("text") {
-                                                if let Some(txt) = item.get("text").and_then(Value::as_str) {
-                                                    let clean = Self::strip_wrapper_tags(txt);
-                                                    if !clean.is_empty() {
-                                                        title = clean;
-                                                        break;
-                                                    }
-                                                }
+                                        let joined: String = content.iter()
+                                            .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
+                                            .filter_map(|item| item.get("text").and_then(Value::as_str))
+                                            .collect::<Vec<_>>()
+                                            .join("\n");
+                                        if title.is_empty() {
+                                            let clean = Self::strip_wrapper_tags(&joined);
+                                            if !clean.is_empty() {
+                                                title = clean;
+                                            }
+                                        }
+                                        if first_prompt.is_empty() {
+                                            if let Some(fp) = crate::adapters::make_first_prompt(&joined) {
+                                                first_prompt = fp;
                                             }
                                         }
                                     }
@@ -152,6 +158,7 @@ impl AgentAdapter for QoderAdapter {
                     all_paths: vec![main_path_str],
                     cwd,
                     title,
+                    first_prompt,
                     created_at,
                     updated_at,
                     size_bytes: file_size,
@@ -202,6 +209,7 @@ impl AgentAdapter for QoderAdapter {
                     let mut earliest_ts = 0i64;
                     let mut latest_ts = 0i64;
                     let mut title = String::new();
+                    let mut first_prompt = String::new();
                     let mut resolved_cwd = decoded_cwd.clone();
                     let mut main_file_path = sess_path.to_string_lossy().to_string();
                     let mut turn_count = 0u32;
@@ -247,11 +255,18 @@ impl AgentAdapter for QoderAdapter {
                                                     resolved_cwd = pr.to_string();
                                                 }
                                             }
-                                            if title.is_empty() {
+                                            if title.is_empty() || first_prompt.is_empty() {
                                                 if let Some(prompt) = data.get("prompt").or_else(|| data.get("query")).or_else(|| data.get("user_query")).and_then(Value::as_str) {
-                                                    let clean = Self::strip_wrapper_tags(prompt);
-                                                    if !clean.is_empty() {
-                                                        title = clean;
+                                                    if title.is_empty() {
+                                                        let clean = Self::strip_wrapper_tags(prompt);
+                                                        if !clean.is_empty() {
+                                                            title = clean;
+                                                        }
+                                                    }
+                                                    if first_prompt.is_empty() {
+                                                        if let Some(fp) = crate::adapters::make_first_prompt(prompt) {
+                                                            first_prompt = fp;
+                                                        }
                                                     }
                                                 }
                                             }
@@ -285,6 +300,7 @@ impl AgentAdapter for QoderAdapter {
                         },
                         cwd: resolved_cwd,
                         title,
+                        first_prompt,
                         created_at: crate::adapters::to_millis(earliest_ts),
                         updated_at: crate::adapters::to_millis(latest_ts),
                         size_bytes: total_size,

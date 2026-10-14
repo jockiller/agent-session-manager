@@ -56,6 +56,33 @@ impl AgentAdapter for HermesAdapter {
         };
 
         let mut summaries = Vec::new();
+        let mut first_prompts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        if let Some(mut fp_stmt) = conn
+            .prepare(
+                r#"
+                SELECT session_id, content
+                FROM messages
+                WHERE role = 'user'
+                ORDER BY session_id, timestamp
+                "#,
+            )
+            .ok()
+        {
+            if let Ok(rows) = fp_stmt.query_map([], |row| {
+                let sid: String = row.get(0)?;
+                let content: String = row.get(1)?;
+                Ok((sid, content))
+            }) {
+                for (sid, content) in rows.flatten() {
+                    if first_prompts.contains_key(&sid) {
+                        continue;
+                    }
+                    if let Some(fp) = crate::adapters::make_first_prompt(&content) {
+                        first_prompts.insert(sid, fp);
+                    }
+                }
+            }
+        }
         let rows = match stmt.query_map([], |row| {
             let id: String = row.get(0)?;
             let title: String = row.get(1)?;
@@ -78,7 +105,8 @@ impl AgentAdapter for HermesAdapter {
             let main_path_str = db_path.to_string_lossy().to_string();
 
             summaries.push(SessionSummary {
-                id,
+                first_prompt: first_prompts.get(&id).cloned().unwrap_or_default(),
+                id: id.clone(),
                 platform: "hermes".to_string(),
                 flavor: "hermes".to_string(),
                 dirname: cwd.clone(),

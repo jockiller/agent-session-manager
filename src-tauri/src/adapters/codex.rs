@@ -93,6 +93,7 @@ impl AgentAdapter for CodexAdapter {
                         seen.insert(sid.clone());
 
                         let mut title = String::new();
+                        let mut first_prompt = String::new();
                         let mut cwd = String::new();
                         let mut model = String::new();
                         let mut created_at = 0i64;
@@ -163,6 +164,13 @@ impl AgentAdapter for CodexAdapter {
                                             if p.get("type").and_then(Value::as_str) == Some("message") {
                                                 if p.get("role").and_then(Value::as_str) == Some("user") {
                                                     turn_count += 1;
+                                                    if first_prompt.is_empty() {
+                                                        if let Some(text) = p.get("content").and_then(crate::adapters::user_text_from_content) {
+                                                            if let Some(fp) = crate::adapters::make_first_prompt(&text) {
+                                                                first_prompt = fp;
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -210,6 +218,7 @@ impl AgentAdapter for CodexAdapter {
                             all_paths: vec![path.to_string_lossy().to_string()],
                             cwd,
                             title,
+                            first_prompt,
                             created_at: crate::adapters::to_millis(created_at),
                             updated_at: crate::adapters::to_millis(updated_at),
                             size_bytes: fsize,

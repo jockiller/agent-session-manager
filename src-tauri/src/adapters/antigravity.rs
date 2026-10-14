@@ -103,6 +103,7 @@ impl AntigravityAdapter {
 
 struct SummaryDbRow {
     title: String,
+    preview: String,
     cwd: String,
     updated_at: i64,
     steps: u32,
@@ -165,7 +166,7 @@ impl AgentAdapter for AntigravityAdapter {
                                 // Extract title properly from title or preview
                                 let raw_title = match t1 {
                                     Some(ref t) if !t.trim().is_empty() => t.clone(),
-                                    _ => t2.unwrap_or_default(),
+                                    _ => t2.clone().unwrap_or_default(),
                                 };
                                 let title = Self::clean_title(&raw_title);
 
@@ -199,6 +200,7 @@ impl AgentAdapter for AntigravityAdapter {
 
                                 db_meta.insert(cid.clone(), SummaryDbRow {
                                     title,
+                                    preview: Self::clean_title(&t2.unwrap_or_default()),
                                     cwd,
                                     updated_at: ts,
                                     steps,
@@ -262,6 +264,7 @@ impl AgentAdapter for AntigravityAdapter {
                 let mut parent_id = None;
                 let mut is_subagent = false;
                 let mut status_running = false;
+                let mut first_prompt = String::new();
 
                 if let Some(row) = db_meta.get(&sid) {
                     title = row.title.clone();
@@ -271,6 +274,13 @@ impl AgentAdapter for AntigravityAdapter {
                     parent_id = row.parent_id.clone();
                     is_subagent = row.is_sub;
                     status_running = row.status == "CASCADE_RUN_STATUS_RUNNING";
+                    // DB-only sessions have no transcript; preview/title is the first user prompt
+                    if first_prompt.is_empty() {
+                        let raw_prompt = if title.is_empty() { row.preview.clone() } else { row.title.clone() };
+                        if let Some(fp) = crate::adapters::make_first_prompt(&raw_prompt) {
+                            first_prompt = fp;
+                        }
+                    }
                 }
 
                 // Parse transcript.jsonl for tokens, fallback title, and timestamps
@@ -303,6 +313,14 @@ impl AgentAdapter for AntigravityAdapter {
                                                 if let Some(caps) = AGY_WS_RE.captures(content) {
                                                     cwd = caps.get(1).map_or("", |m| m.as_str()).to_string();
                                                 }
+                                            }
+                                        }
+                                    }
+                                    if first_prompt.is_empty() {
+                                        if let Some(content) = v.get("content").and_then(Value::as_str) {
+                                            // AGY_REQ_RE already unwraps <USER_REQUEST>; clean_title also works for the snippet
+                                            if let Some(fp) = crate::adapters::make_first_prompt(content) {
+                                                first_prompt = fp;
                                             }
                                         }
                                     }
@@ -359,6 +377,7 @@ impl AgentAdapter for AntigravityAdapter {
                     all_paths,
                     cwd,
                     title,
+                    first_prompt,
                     created_at,
                     updated_at,
                     size_bytes: total_size,

@@ -89,6 +89,8 @@ impl AgentAdapter for OpenClaudeAdapter {
                                 }
 
                                 let mut title = String::new();
+                                let mut first_prompt = String::new();
+                                let mut prompt_tracker = crate::adapters::FirstPromptTracker::default();
                                 let mut cwd = String::new();
                                 let mut model = String::new();
                                 let mut created_at = 0i64;
@@ -135,12 +137,21 @@ impl AgentAdapter for OpenClaudeAdapter {
 
                                             if mtype == "user" {
                                                 turn_count += 1;
+                                                let want_text = !prompt_tracker.is_done();
+                                                let user_text = if want_text {
+                                                    val.get("message")
+                                                        .and_then(|m| m.get("content"))
+                                                        .and_then(crate::adapters::user_text_from_content)
+                                                        .unwrap_or_default()
+                                                } else {
+                                                    String::new()
+                                                };
                                                 if title.is_empty() {
-                                                    if let Some(msg) = val.get("message") {
-                                                        if let Some(content) = msg.get("content").and_then(Value::as_str) {
-                                                            title = content.lines().next().unwrap_or("").trim().to_string();
-                                                        }
-                                                    }
+                                                    title = user_text.lines().next().unwrap_or("").trim().to_string();
+                                                }
+                                                if want_text {
+                                                    prompt_tracker.feed(&user_text);
+                                                    first_prompt = prompt_tracker.finish();
                                                 }
                                             } else if mtype == "assistant" {
                                                 if let Some(msg) = val.get("message") {
@@ -187,6 +198,7 @@ impl AgentAdapter for OpenClaudeAdapter {
                                     all_paths,
                                     cwd: cwd.clone(),
                                     title,
+                                    first_prompt,
                                     created_at: crate::adapters::to_millis(created_at),
                                     updated_at: crate::adapters::to_millis(updated_at),
                                     size_bytes: total_size,
@@ -213,6 +225,7 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                     seen.insert(sub_id.clone());
 
                                                     let mut sub_title = String::new();
+                                                    let mut sub_first_prompt = String::new();
                                                     let mut sub_model = "openclaude-subagent".to_string();
                                                     let mut sub_created = 0i64;
                                                     let mut sub_updated = 0i64;
@@ -241,10 +254,12 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                                 let stype = s_val.get("type").and_then(Value::as_str).unwrap_or("");
                                                                 if stype == "user" {
                                                                     sub_turns += 1;
-                                                                    if sub_title.is_empty() {
+                                                                    if sub_first_prompt.is_empty() {
                                                                         if let Some(msg) = s_val.get("message") {
                                                                             if let Some(cnt) = msg.get("content").and_then(Value::as_str) {
-                                                                                sub_title = cnt.lines().next().unwrap_or("").trim().to_string();
+                                                                                if let Some(fp) = crate::adapters::make_first_prompt(cnt) {
+                                                                                    sub_first_prompt = fp;
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
@@ -292,6 +307,7 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                         all_paths: vec![sub_path.to_string_lossy().to_string()],
                                                         cwd: cwd.clone(),
                                                         title: sub_title,
+                                                        first_prompt: sub_first_prompt,
                                                         created_at: crate::adapters::to_millis(sub_created),
                                                         updated_at: crate::adapters::to_millis(sub_updated),
                                                         size_bytes: sub_size,

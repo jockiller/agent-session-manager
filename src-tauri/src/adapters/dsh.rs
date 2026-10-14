@@ -79,6 +79,7 @@ impl AgentAdapter for DshAdapter {
                         let log_file = log_names.iter().map(|n| spath.join(n)).find(|p| p.exists());
 
                         let mut title = String::new();
+                        let mut first_prompt = String::new();
                         let mut cwd = String::new();
                         let mut created_at = 0i64;
                         let mut updated_at = 0i64;
@@ -125,6 +126,15 @@ impl AgentAdapter for DshAdapter {
                                                 }
                                             } else if etype == "user/message" {
                                                 turn_count += 1;
+                                                if first_prompt.is_empty() {
+                                                    if let Some(data) = val.get("data") {
+                                                        if let Some(text) = data.get("text").or_else(|| data.get("value")).and_then(Value::as_str) {
+                                                            if let Some(fp) = crate::adapters::make_first_prompt(text) {
+                                                                first_prompt = fp;
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -158,6 +168,7 @@ impl AgentAdapter for DshAdapter {
                             all_paths: vec![spath.to_string_lossy().to_string()],
                             cwd,
                             title,
+                            first_prompt,
                             created_at: crate::adapters::to_millis(created_at),
                             updated_at: crate::adapters::to_millis(updated_at),
                             size_bytes: total_size,

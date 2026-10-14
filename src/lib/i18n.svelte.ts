@@ -67,7 +67,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     clear_search: "清空搜索",
 
     // Session List
-    search_sessions: "搜索会话标题、路径、ID 或模型...",
+    search_sessions: "搜索标题、首条提问、路径、ID 或模型...",
     view_tree: "层级",
     view_flat: "平铺",
     expand: "展开",
@@ -263,7 +263,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     clear_search: "清空搜尋",
 
     // Session List
-    search_sessions: "搜尋會話標題、路徑、ID 或模型...",
+    search_sessions: "搜尋標題、首條提問、路徑、ID 或模型...",
     view_tree: "層級",
     view_flat: "平鋪",
     expand: "展開",
@@ -459,7 +459,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     clear_search: "Clear search",
 
     // Session List
-    search_sessions: "Search session title, path, ID or model...",
+    search_sessions: "Search title, first prompt, path, ID or model...",
     view_tree: "Tree",
     view_flat: "Flat",
     expand: "Expand",
@@ -655,7 +655,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     clear_search: "検索をクリア",
 
     // Session List
-    search_sessions: "タイトル、パス、ID、モデル検索...",
+    search_sessions: "タイトル、最初の質問、パス、ID、モデル検索...",
     view_tree: "ツリー",
     view_flat: "フラット",
     expand: "展開",
@@ -851,7 +851,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     clear_search: "검색 지우기",
 
     // Session List
-    search_sessions: "제목, 경로, ID, 모델 검색...",
+    search_sessions: "제목, 첫 질문, 경로, ID, 모델 검색...",
     view_tree: "트리",
     view_flat: "플랫",
     expand: "펼치기",

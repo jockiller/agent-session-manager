@@ -186,7 +186,7 @@
         cliCmd = `workbuddy --session "${s.id}"`;
         break;
       case "opencode":
-        cliCmd = `opencode session resume "${s.id}"`;
+        cliCmd = `opencode -s "${s.id}"`;
         break;
       case "codewiz":
         cliCmd = `codewiz session resume "${s.id}"`;

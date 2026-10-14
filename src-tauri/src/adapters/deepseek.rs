@@ -63,6 +63,7 @@ impl AgentAdapter for DeepSeekAdapter {
                 .unwrap_or(0);
 
             let mut title = String::new();
+            let mut first_prompt = String::new();
             let mut cwd = String::new();
             let mut turn_count = 0u32;
 
@@ -81,11 +82,18 @@ impl AgentAdapter for DeepSeekAdapter {
                                 if !t.trim().is_empty() {
                                     title = t.trim().to_string();
                                 }
-                            } else if val.get("role").and_then(Value::as_str) == Some("user") {
+                            }
+                        }
+                        if first_prompt.is_empty() {
+                            if val.get("role").and_then(Value::as_str) == Some("user") {
                                 if let Some(text) = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str) {
-                                    if !text.trim().is_empty() {
-                                        title = text.trim().to_string();
+                                    if let Some(fp) = crate::adapters::make_first_prompt(text) {
+                                        first_prompt = fp;
                                     }
+                                }
+                            } else if let Some(t) = val.get("first_question").and_then(Value::as_str) {
+                                if let Some(fp) = crate::adapters::make_first_prompt(t) {
+                                    first_prompt = fp;
                                 }
                             }
                         }
@@ -107,6 +115,7 @@ impl AgentAdapter for DeepSeekAdapter {
                 all_paths: vec![main_path_str],
                 cwd,
                 title,
+                first_prompt,
                 created_at: crate::adapters::to_millis(mtime_sec),
                 updated_at: crate::adapters::to_millis(mtime_sec),
                 size_bytes: file_size,

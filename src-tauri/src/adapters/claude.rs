@@ -144,6 +144,8 @@ impl AgentAdapter for ClaudeAdapter {
                                 }
 
                                 let mut title = String::new();
+                                let mut first_prompt = String::new();
+                                let mut prompt_tracker = crate::adapters::FirstPromptTracker::default();
                                 let mut cwd = String::new();
                                 let mut model = String::new();
                                 let mut created_at = 0i64;
@@ -182,15 +184,28 @@ impl AgentAdapter for ClaudeAdapter {
                                                 if let Some(t) = val.get("aiTitle").and_then(Value::as_str) {
                                                     title = t.trim().to_string();
                                                 }
-                                            } else if mtype == "user" && title.is_empty() {
+                                            } else if mtype == "user" {
                                                 turn_count += 1;
-                                                if let Some(msg) = val.get("message") {
-                                                    if let Some(c) = msg.get("content").and_then(Value::as_str) {
-                                                        let s = c.trim();
-                                                        if !s.starts_with('<') {
-                                                            title = s.chars().take(80).collect();
-                                                        }
+                                                // Keep reading user turns until a tagged prompt shows up,
+                                                // so wrapper-only early messages get replaced by the real question
+                                                let want_text = !prompt_tracker.is_done();
+                                                let user_text = if want_text {
+                                                    val.get("message")
+                                                        .and_then(|m| m.get("content"))
+                                                        .and_then(crate::adapters::user_text_from_content)
+                                                        .unwrap_or_default()
+                                                } else {
+                                                    String::new()
+                                                };
+                                                if title.is_empty() {
+                                                    let s = user_text.trim();
+                                                    if !s.is_empty() && !s.starts_with('<') {
+                                                        title = s.chars().take(80).collect();
                                                     }
+                                                }
+                                                if want_text {
+                                                    prompt_tracker.feed(&user_text);
+                                                    first_prompt = prompt_tracker.finish();
                                                 }
                                             } else if mtype == "assistant" {
                                                 if let Some(msg) = val.get("message") {
@@ -238,6 +253,7 @@ impl AgentAdapter for ClaudeAdapter {
                                     all_paths,
                                     cwd: cwd.clone(),
                                     title,
+                                    first_prompt,
                                     created_at: crate::adapters::to_millis(created_at),
                                     updated_at: crate::adapters::to_millis(updated_at),
                                     size_bytes: total_size,
@@ -288,6 +304,7 @@ impl AgentAdapter for ClaudeAdapter {
                                             all_paths: vec![sub_path.to_string_lossy().to_string()],
                                             cwd: cwd.clone(),
                                             title: format!("子代理: {}", sub_sid),
+                                            first_prompt: String::new(),
                                             created_at: crate::adapters::to_millis(created_at),
                                             updated_at: crate::adapters::to_millis(updated_at),
                                             size_bytes: sub_size,

@@ -7,6 +7,7 @@ export interface SessionSummary {
   all_paths: string[];
   cwd: string;
   title: string;
+  first_prompt?: string;
   created_at: number;
   updated_at: number;
   size_bytes: number;

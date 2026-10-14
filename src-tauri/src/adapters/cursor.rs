@@ -168,6 +168,7 @@ impl AgentAdapter for CursorAdapter {
                         .unwrap_or(0);
 
                     let mut title = String::new();
+                    let mut first_prompt = String::new();
                     let mut cwd = String::new();
                     let created_at = to_millis(mtime_sec);
                     let updated_at = to_millis(mtime_sec);
@@ -189,10 +190,14 @@ impl AgentAdapter for CursorAdapter {
                                 }
 
                                 if let Some(role) = val.get("role").and_then(Value::as_str) {
-                                    if role == "user" && title.is_empty() {
-                                        if let Some(txt) = val.get("text").or_else(|| val.get("content")).and_then(Value::as_str) {
-                                            if !txt.trim().is_empty() {
-                                                title = txt.trim().to_string();
+                                    if role == "user" {
+                                        let text_val = val.get("text").or_else(|| val.get("content")).and_then(Value::as_str).unwrap_or("");
+                                        if title.is_empty() && !text_val.trim().is_empty() {
+                                            title = text_val.trim().to_string();
+                                        }
+                                        if first_prompt.is_empty() {
+                                            if let Some(fp) = crate::adapters::make_first_prompt(text_val) {
+                                                first_prompt = fp;
                                             }
                                         }
                                     }
@@ -225,6 +230,7 @@ impl AgentAdapter for CursorAdapter {
                         all_paths: vec![main_path_str],
                         cwd,
                         title,
+                        first_prompt,
                         created_at,
                         updated_at,
                         size_bytes: file_size,
@@ -291,6 +297,13 @@ impl AgentAdapter for CursorAdapter {
                                     .map(|arr| arr.len() as u32)
                                     .unwrap_or(1);
 
+                                let first_prompt = comp.get("conversation")
+                                    .and_then(Value::as_array)
+                                    .and_then(|arr| arr.iter().find(|turn| turn.get("type").and_then(Value::as_str).unwrap_or("1") == "1"))
+                                    .and_then(|turn| turn.get("text").and_then(Value::as_str))
+                                    .and_then(crate::adapters::make_first_prompt)
+                                    .unwrap_or_default();
+
                                 let title = if !name.is_empty() {
                                     name.to_string()
                                 } else if !dirname.is_empty() {
@@ -308,6 +321,7 @@ impl AgentAdapter for CursorAdapter {
                                     all_paths: vec![],
                                     cwd: cwd.clone(),
                                     title,
+                                    first_prompt,
                                     created_at,
                                     updated_at: created_at,
                                     size_bytes: db_size,
@@ -338,6 +352,12 @@ impl AgentAdapter for CursorAdapter {
                                 let bubbles = tab.get("bubbles").and_then(Value::as_array);
                                 let turn_count = bubbles.map(|b| b.len() as u32).unwrap_or(1);
 
+                                let first_prompt = bubbles
+                                    .and_then(|b| b.iter().find(|bubble| bubble.get("type").and_then(Value::as_str).unwrap_or("user") != "ai"))
+                                    .and_then(|bubble| bubble.get("rawText").or_else(|| bubble.get("text")).and_then(Value::as_str))
+                                    .and_then(crate::adapters::make_first_prompt)
+                                    .unwrap_or_default();
+
                                 let title = if !chat_title.is_empty() {
                                     chat_title.to_string()
                                 } else if !dirname.is_empty() {
@@ -356,6 +376,7 @@ impl AgentAdapter for CursorAdapter {
                                     all_paths: vec![],
                                     cwd: cwd.clone(),
                                     title,
+                                    first_prompt,
                                     created_at: now_ms,
                                     updated_at: now_ms,
                                     size_bytes: db_size,

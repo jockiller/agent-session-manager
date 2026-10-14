@@ -71,6 +71,7 @@ impl AgentAdapter for QwenAdapter {
 
             let mut sid = file_stem.to_string();
             let mut title = String::new();
+            let mut first_prompt = String::new();
             let mut cwd = String::new();
             let mut model = "qwen-2.5-coder".to_string();
             let mut created_at = 0i64;
@@ -135,9 +136,25 @@ impl AgentAdapter for QwenAdapter {
                         let role = val.get("role").or_else(|| val.get("type")).and_then(Value::as_str).unwrap_or("");
                         if role == "user" {
                             turn_count += 1;
-                            if title.is_empty() {
-                                if let Some(cnt) = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str) {
-                                    title = cnt.lines().next().unwrap_or("").trim().to_string();
+                            if title.is_empty() || first_prompt.is_empty() {
+                                let text = val.get("content").or_else(|| val.get("text")).map(|c| {
+                                    c.as_str().map(|s| s.to_string()).unwrap_or_else(|| {
+                                        c.as_array().map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|item| item.get("text").and_then(Value::as_str))
+                                                .collect::<Vec<_>>()
+                                                .join("\n")
+                                        })
+                                        .unwrap_or_default()
+                                    })
+                                }).unwrap_or_default();
+                                if title.is_empty() {
+                                    title = text.lines().next().unwrap_or("").trim().to_string();
+                                }
+                                if first_prompt.is_empty() {
+                                    if let Some(fp) = crate::adapters::make_first_prompt(&text) {
+                                        first_prompt = fp;
+                                    }
                                 }
                             }
                         }
@@ -175,6 +192,7 @@ impl AgentAdapter for QwenAdapter {
                 all_paths: vec![path.to_string_lossy().to_string()],
                 cwd,
                 title,
+                first_prompt,
                 created_at: crate::adapters::to_millis(created_at),
                 updated_at: crate::adapters::to_millis(updated_at),
                 size_bytes: size,

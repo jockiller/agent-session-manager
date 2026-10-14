@@ -113,6 +113,7 @@ impl AgentAdapter for WorkBuddyAdapter {
                     .unwrap_or(0);
 
                 let mut title = String::new();
+                let mut first_prompt = String::new();
                 let mut cwd = String::new();
                 let mut created_at = mtime_sec;
                 let mut updated_at = mtime_sec;
@@ -170,12 +171,21 @@ impl AgentAdapter for WorkBuddyAdapter {
                             } else if typ == "message" {
                                 turn_count += 1;
                                 let role = val.get("role").and_then(Value::as_str).unwrap_or("");
-                                if role == "user" && title.is_empty() {
+                                if role == "user" && (title.is_empty() || first_prompt.is_empty()) {
                                     if let Some(content) = val.get("content") {
-                                        let text = Self::extract_text_from_content(content);
-                                        let trimmed = text.trim();
-                                        if !trimmed.is_empty() {
-                                            title = trimmed.to_string();
+                                        if title.is_empty() {
+                                            let text = Self::extract_text_from_content(content);
+                                            let trimmed = text.trim();
+                                            if !trimmed.is_empty() {
+                                                title = trimmed.to_string();
+                                            }
+                                        }
+                                        if first_prompt.is_empty() {
+                                            if let Some(text) = crate::adapters::user_text_from_content(content) {
+                                                if let Some(fp) = crate::adapters::make_first_prompt(&text) {
+                                                    first_prompt = fp;
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -219,6 +229,7 @@ impl AgentAdapter for WorkBuddyAdapter {
                     all_paths: vec![main_path_str],
                     cwd,
                     title,
+                    first_prompt,
                     created_at: crate::adapters::to_millis(created_at),
                     updated_at: crate::adapters::to_millis(updated_at),
                     size_bytes: file_size,

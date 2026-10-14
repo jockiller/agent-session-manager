@@ -148,10 +148,11 @@
         if (selectedTimeRange === "older30d" && now - s.updated_at <= 30 * dayMs) return false;
       }
 
-      // Search Query: multi-term matching across title, directory/cwd, id, model/flavor, platform
+      // Search Query: multi-term matching across title, first prompt, directory/cwd, id, model/flavor, platform
       if (searchQuery.trim()) {
         const terms = searchQuery.toLowerCase().trim().split(/\s+/).filter(Boolean);
         const titleStr = s.title?.toLowerCase() || "";
+        const promptStr = s.first_prompt?.toLowerCase() || "";
         const cwdStr = (s.cwd || s.dirname)?.toLowerCase() || "";
         const idStr = s.id?.toLowerCase() || "";
         const flavorStr = s.flavor?.toLowerCase() || "";
@@ -160,6 +161,7 @@
         const matchesAllTerms = terms.every(
           (t) =>
             titleStr.includes(t) ||
+            promptStr.includes(t) ||
             cwdStr.includes(t) ||
             idStr.includes(t) ||
             flavorStr.includes(t) ||

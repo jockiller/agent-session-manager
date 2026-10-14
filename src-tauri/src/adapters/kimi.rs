@@ -79,6 +79,29 @@ impl AgentAdapter for KimiAdapter {
                                 .map(|d| d.as_secs() as i64)
                                 .unwrap_or(0);
 
+                            let mut kimi_first_prompt = String::new();
+                            if session_path.is_file() {
+                                let mut tracker = crate::adapters::FirstPromptTracker::default();
+                                if let Ok(f) = File::open(&session_path) {
+                                    let reader = BufReader::new(f);
+                                    'outer: for line in reader.lines().flatten() {
+                                        let line = line.trim();
+                                        if line.is_empty() {
+                                            continue;
+                                        }
+                                        if let Ok(val) = serde_json::from_str::<Value>(line) {
+                                            if val.get("role").and_then(Value::as_str) == Some("user") {
+                                                let text = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str).unwrap_or("");
+                                                if tracker.feed(text) {
+                                                    break 'outer;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                kimi_first_prompt = tracker.finish();
+                            }
+
                             let main_path_str = session_path.to_string_lossy().to_string();
 
                             summaries.push(SessionSummary {
@@ -90,6 +113,7 @@ impl AgentAdapter for KimiAdapter {
                                 all_paths: vec![main_path_str],
                                 cwd: wdir.to_string(),
                                 title: format!("Kimi 会话 {}", &sid[..sid.len().min(8)]),
+                                first_prompt: kimi_first_prompt,
                                 created_at: crate::adapters::to_millis(mtime_sec),
                                 updated_at: crate::adapters::to_millis(mtime_sec),
                                 size_bytes: file_size,
@@ -133,29 +157,34 @@ impl AgentAdapter for KimiAdapter {
                         .unwrap_or(0);
 
                     let mut title = String::new();
+                    let mut tracker = crate::adapters::FirstPromptTracker::default();
                     let mut cwd = String::new();
                     let mut turn_count = 0u32;
 
                     if let Ok(file) = File::open(path) {
                         let reader = BufReader::new(file);
-                        for line in reader.lines().flatten() {
+                        'outer: for line in reader.lines().flatten() {
                             if let Ok(val) = serde_json::from_str::<Value>(&line) {
                                 if let Some(c) = val.get("cwd").or_else(|| val.get("workDir")).and_then(Value::as_str) {
                                     if cwd.is_empty() {
                                         cwd = c.to_string();
                                     }
                                 }
-                                if val.get("role").and_then(Value::as_str) == Some("user") && title.is_empty() {
-                                    if let Some(txt) = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str) {
-                                        if !txt.trim().is_empty() {
-                                            title = txt.trim().to_string();
-                                        }
+                                let is_user = val.get("role").and_then(Value::as_str) == Some("user");
+                                let text_val = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str).unwrap_or("");
+                                if is_user {
+                                    if title.is_empty() && !text_val.trim().is_empty() {
+                                        title = text_val.trim().to_string();
+                                    }
+                                    if tracker.feed(text_val) {
+                                        break 'outer;
                                     }
                                 }
                                 turn_count += 1;
                             }
                         }
                     }
+                    let first_prompt = tracker.finish();
 
                     if title.is_empty() {
                         title = format!("Kimi 会话 {}", &sid[..sid.len().min(8)]);
@@ -171,6 +200,7 @@ impl AgentAdapter for KimiAdapter {
                         all_paths: vec![main_path_str],
                         cwd,
                         title,
+                        first_prompt,
                         created_at: crate::adapters::to_millis(mtime_sec),
                         updated_at: crate::adapters::to_millis(mtime_sec),
                         size_bytes: file_size,

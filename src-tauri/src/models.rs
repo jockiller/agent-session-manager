@@ -10,6 +10,9 @@ pub struct SessionSummary {
     pub all_paths: Vec<String>,
     pub cwd: String,
     pub title: String,
+    /// First real user prompt of the session, used by the list search to match message content
+    #[serde(default)]
+    pub first_prompt: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub size_bytes: u64,

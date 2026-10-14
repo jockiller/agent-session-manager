@@ -72,6 +72,7 @@ impl AgentAdapter for GeminiAdapter {
                     .unwrap_or(0);
 
                 let mut title = String::new();
+                let mut first_prompt = String::new();
                 let mut cwd = String::new();
                 let mut turn_count = 0u32;
 
@@ -90,10 +91,14 @@ impl AgentAdapter for GeminiAdapter {
                                     title = s.trim().to_string();
                                 }
                             }
-                            if title.is_empty() && val.get("type").and_then(Value::as_str) == Some("user") {
-                                if let Some(text) = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str) {
-                                    if !text.trim().is_empty() {
-                                        title = text.trim().to_string();
+                            if val.get("type").and_then(Value::as_str) == Some("user") {
+                                let text = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str).unwrap_or("");
+                                if title.is_empty() && !text.trim().is_empty() {
+                                    title = text.trim().to_string();
+                                }
+                                if first_prompt.is_empty() {
+                                    if let Some(fp) = crate::adapters::make_first_prompt(text) {
+                                        first_prompt = fp;
                                     }
                                 }
                             }
@@ -115,6 +120,7 @@ impl AgentAdapter for GeminiAdapter {
                     all_paths: vec![main_path_str],
                     cwd,
                     title,
+                    first_prompt,
                     created_at: crate::adapters::to_millis(mtime_sec),
                     updated_at: crate::adapters::to_millis(mtime_sec),
                     size_bytes: file_size,

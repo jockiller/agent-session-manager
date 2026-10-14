@@ -122,6 +122,7 @@ impl AgentAdapter for TraeAdapter {
                     .unwrap_or(0);
 
                 let mut title = String::new();
+                let mut first_prompt = String::new();
                 let mut created_at = mtime_sec;
                 let mut updated_at = mtime_sec;
                 let mut turn_count = 0u32;
@@ -141,6 +142,14 @@ impl AgentAdapter for TraeAdapter {
                                 if let Some(intent) = val.get("intent").and_then(Value::as_str) {
                                     if !intent.trim().is_empty() {
                                         title = intent.trim().to_string();
+                                    }
+                                }
+                            }
+
+                            if first_prompt.is_empty() {
+                                if let Some(intent) = val.get("intent").and_then(Value::as_str) {
+                                    if let Some(fp) = crate::adapters::make_first_prompt(intent) {
+                                        first_prompt = fp;
                                     }
                                 }
                             }
@@ -188,6 +197,7 @@ impl AgentAdapter for TraeAdapter {
                     all_paths: vec![main_path_str],
                     cwd: project_dir,
                     title,
+                    first_prompt,
                     created_at: crate::adapters::to_millis(created_at),
                     updated_at: crate::adapters::to_millis(updated_at),
                     size_bytes: file_size,

@@ -69,6 +69,7 @@ impl AgentAdapter for OpenClawAdapter {
                 .unwrap_or(0);
 
             let mut title = String::new();
+            let mut first_prompt = String::new();
             let mut cwd = String::new();
             let mut turn_count = 0u32;
             let mut raw_id = sid.clone();
@@ -86,14 +87,15 @@ impl AgentAdapter for OpenClawAdapter {
                                 cwd = c.to_string();
                             }
                         }
-                        if title.is_empty() {
-                            if let Some(role) = val.get("role").or_else(|| val.get("type")).and_then(Value::as_str) {
-                                if role == "user" {
-                                    if let Some(txt) = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str) {
-                                        if !txt.trim().is_empty() {
-                                            title = txt.trim().to_string();
-                                        }
-                                    }
+                        let role = val.get("role").or_else(|| val.get("type")).and_then(Value::as_str).unwrap_or("");
+                        let text_val = val.get("content").or_else(|| val.get("text")).and_then(Value::as_str).unwrap_or("");
+                        if role == "user" {
+                            if title.is_empty() && !text_val.trim().is_empty() {
+                                title = text_val.trim().to_string();
+                            }
+                            if first_prompt.is_empty() {
+                                if let Some(fp) = crate::adapters::make_first_prompt(text_val) {
+                                    first_prompt = fp;
                                 }
                             }
                         }
@@ -115,6 +117,7 @@ impl AgentAdapter for OpenClawAdapter {
                 all_paths: vec![main_path_str],
                 cwd,
                 title,
+                first_prompt,
                 created_at: crate::adapters::to_millis(mtime_sec),
                 updated_at: crate::adapters::to_millis(mtime_sec),
                 size_bytes: file_size,
