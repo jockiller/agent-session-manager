@@ -16,17 +16,43 @@ crate::lazy_regex!(AGY_XML_RE, r"<[^>]+>");
 crate::lazy_regex!(AGY_MENTION_RE, r"^@\[[^\]]+\]\s*");
 crate::lazy_regex!(AGY_WS_RE, r"file://(?:/)?([a-zA-Z]:[/\\][^\s\)]+|/(?:Users|home)/[^\s\)]+)");
 
-pub struct AntigravityAdapter;
+pub struct AntigravityAdapter {
+    /// Test-only home directory. Production leaves this empty and uses `GEMINI_HOME` or `~/.gemini`.
+    home_override: Option<PathBuf>,
+}
+
+/// Antigravity ships as three products that share one on-disk layout: the CLI, the
+/// desktop app and the IDE. Each keeps its own sub directory of `~/.gemini`.
+const FLAVORS: [(&str, &str); 3] = [
+    ("cli", "antigravity-cli"),
+    ("app", "antigravity"),
+    ("ide", "antigravity-ide"),
+];
+
+/// File names of the protobuf summary store, one per product family.
+const SUMMARY_STORES: [&str; 2] = ["jetbox_summaries_proto.pb", "agyhub_summaries_proto.pb"];
 
 impl AntigravityAdapter {
-    fn gemini_home() -> PathBuf {
-        if let Ok(dir) = std::env::var("GEMINI_HOME") {
-            PathBuf::from(dir)
-        } else if let Some(home) = crate::adapters::user_home() {
-            home.join(".gemini")
-        } else {
-            PathBuf::from(".gemini")
+    pub fn new() -> Self {
+        Self { home_override: None }
+    }
+
+    #[cfg(test)]
+    fn with_home(home: PathBuf) -> Self {
+        Self {
+            home_override: Some(home),
         }
+    }
+
+    fn gemini_home(&self) -> PathBuf {
+        if let Some(home) = &self.home_override {
+            return home.clone();
+        }
+        std::env::var_os("GEMINI_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| crate::adapters::user_home().map(|home| home.join(".gemini")))
+            .unwrap_or_else(|| PathBuf::from(".gemini"))
     }
 
     fn clean_title(raw: &str) -> String {
@@ -84,6 +110,107 @@ impl AntigravityAdapter {
         map
     }
 
+    fn summary_store(fdir: &Path) -> Option<PathBuf> {
+        SUMMARY_STORES
+            .iter()
+            .map(|name| fdir.join(name))
+            .find(|p| p.metadata().map_or(false, |m| m.len() > 0))
+    }
+
+    /// Removes `remove` from the protobuf summary store, which is the authoritative copy:
+    /// Antigravity rebuilds `conversation_summaries.db` from it on every start, so a row
+    /// deleted only from SQLite comes back on the next launch.
+    fn prune_summary_store(fdir: &Path, remove: &HashSet<&str>) {
+        let Some(store) = Self::summary_store(fdir) else {
+            return;
+        };
+        let Ok(original) = fs::read(&store) else {
+            return;
+        };
+        let Some((updated, dropped)) = pb_drop_records(&original, remove) else {
+            // Unrecognised layout: leave the file alone rather than risk corrupting it.
+            return;
+        };
+        if dropped == 0 {
+            return;
+        }
+
+        // Keep one previous copy, then swap the new contents in atomically. Skip the rewrite
+        // entirely when the backup cannot be written, so a failed cleanup never loses the store.
+        if fs::copy(&store, store.with_extension("pb.pre-prune")).is_err() {
+            return;
+        }
+        let tmp = store.with_extension("pb.tmp");
+        let mut written = fs::write(&tmp, &updated).is_ok();
+        if written {
+            // The store is mode 0600; a fresh file would widen it to the default.
+            if let Ok(meta) = fs::metadata(&store) {
+                written = fs::set_permissions(&tmp, meta.permissions()).is_ok();
+            }
+        }
+        if !written || fs::rename(&tmp, &store).is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+    }
+
+    fn prune_summary_db(fdir: &Path, remove: &HashSet<&str>) {
+        let db_path = fdir.join("conversation_summaries.db");
+        if !db_path.exists() {
+            return;
+        }
+        let Ok(conn) = Connection::open(&db_path) else {
+            return;
+        };
+        // Antigravity may be holding the database; wait instead of silently giving up.
+        let _ = conn.busy_timeout(std::time::Duration::from_secs(5));
+
+        let ids: Vec<&str> = remove.iter().copied().collect();
+        delete_conversation_ids(&conn, "conversation_summaries", &ids);
+        // The desktop app keeps an FTS5 search index with no delete trigger, so removing only the
+        // summary row would leave the conversation findable.
+        if sqlite_name_exists(&conn, "conversations_fts") {
+            delete_conversation_ids(&conn, "conversations_fts", &ids);
+        }
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    }
+
+    /// Ids still listed by the protobuf store or by its SQLite mirror, plus whether every
+    /// existing store could be read. An unreadable store means absence cannot be proven, so
+    /// nothing may be reported as removed in that case.
+    fn summary_ids(fdir: &Path) -> (HashSet<String>, bool) {
+        let mut ids = HashSet::new();
+        let mut verifiable = true;
+
+        if let Some(store) = Self::summary_store(fdir) {
+            match fs::read(&store) {
+                Ok(buf) => match pb_fields(&buf, 0, buf.len()) {
+                    Some(fields) => ids.extend(fields.iter().filter_map(|f| pb_record_id(&buf, f))),
+                    None => verifiable = false,
+                },
+                Err(_) => verifiable = false,
+            }
+        }
+
+        let db_path = fdir.join("conversation_summaries.db");
+        if db_path.exists() {
+            match Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
+                Ok(conn) => {
+                    if !collect_conversation_ids(&conn, "conversation_summaries", &mut ids) {
+                        verifiable = false;
+                    }
+                    if sqlite_name_exists(&conn, "conversations_fts")
+                        && !collect_conversation_ids(&conn, "conversations_fts", &mut ids)
+                    {
+                        verifiable = false;
+                    }
+                }
+                Err(_) => verifiable = false,
+            }
+        }
+
+        (ids, verifiable)
+    }
+
     fn path_size(p: &Path) -> u64 {
         if p.is_file() {
             return p.metadata().map(|m| m.len()).unwrap_or(0);
@@ -99,6 +226,150 @@ impl AntigravityAdapter {
         }
         0
     }
+}
+
+fn sqlite_name_exists(conn: &Connection, name: &str) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE name = ?1",
+        [name],
+        |_| Ok(1i32),
+    )
+    .is_ok()
+}
+
+fn delete_conversation_ids(conn: &Connection, table: &str, ids: &[&str]) {
+    for chunk in ids.chunks(400) {
+        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "DELETE FROM {} WHERE conversation_id IN ({})",
+            table, placeholders
+        );
+        let _ = conn.execute(&sql, rusqlite::params_from_iter(chunk.iter().copied()));
+    }
+}
+
+fn collect_conversation_ids(conn: &Connection, table: &str, into: &mut HashSet<String>) -> bool {
+    let sql = format!("SELECT conversation_id FROM {}", table);
+    let mut stmt = match conn.prepare(&sql) {
+        Ok(stmt) => stmt,
+        Err(_) => return false,
+    };
+    let rows = match stmt.query_map([], |row| row.get::<_, String>(0)) {
+        Ok(rows) => rows,
+        Err(_) => return false,
+    };
+    for row in rows {
+        match row {
+            Ok(id) => {
+                into.insert(id);
+            }
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+/// One field of a protobuf message, with the byte span it occupies.
+struct PbField {
+    number: u64,
+    wire: u8,
+    /// Offset of the field tag, so the whole field can be copied verbatim.
+    start: usize,
+    /// Offset of the field value, after the tag and (for wire type 2) its length prefix.
+    value_start: usize,
+    /// End of the field.
+    value_end: usize,
+}
+
+/// Minimal protobuf wire-format reader, just enough to walk the summary store.
+/// Returns `None` for anything it does not understand, so callers can leave the file alone.
+fn pb_fields(buf: &[u8], mut pos: usize, end: usize) -> Option<Vec<PbField>> {
+    let mut out = Vec::new();
+    while pos < end {
+        let start = pos;
+        let (key, after_key) = pb_varint(buf, pos, end)?;
+        pos = after_key;
+        let number = key >> 3;
+        let wire = (key & 0x7) as u8;
+        if number == 0 {
+            return None;
+        }
+        let (value_start, value_end) = match wire {
+            0 => {
+                let (_value, after) = pb_varint(buf, pos, end)?;
+                (pos, after)
+            }
+            2 => {
+                let (len, after) = pb_varint(buf, pos, end)?;
+                let value_end = after.checked_add(len as usize)?;
+                if value_end > end {
+                    return None;
+                }
+                (after, value_end)
+            }
+            1 => (pos, pos.checked_add(8)?),
+            5 => (pos, pos.checked_add(4)?),
+            _ => return None,
+        };
+        if value_end > end {
+            return None;
+        }
+        out.push(PbField {
+            number,
+            wire,
+            start,
+            value_start,
+            value_end,
+        });
+        pos = value_end;
+    }
+    Some(out)
+}
+
+fn pb_varint(buf: &[u8], mut pos: usize, end: usize) -> Option<(u64, usize)> {
+    let mut value = 0u64;
+    let mut shift = 0u32;
+    loop {
+        if pos >= end || shift > 63 {
+            return None;
+        }
+        let b = buf[pos];
+        value |= ((b & 0x7F) as u64) << shift;
+        pos += 1;
+        if b & 0x80 == 0 {
+            return Some((value, pos));
+        }
+        shift += 7;
+    }
+}
+
+/// Conversation id of a summary record: field 1 of the record message.
+fn pb_record_id(buf: &[u8], record: &PbField) -> Option<String> {
+    let inner = pb_fields(buf, record.value_start, record.value_end)?;
+    let id = inner.iter().find(|f| f.number == 1 && f.wire == 2)?;
+    Some(String::from_utf8_lossy(&buf[id.value_start..id.value_end]).to_string())
+}
+
+/// Drops the summary records of `remove` from the store, copying every other record
+/// byte-for-byte. Returns the new contents and how many records were dropped.
+fn pb_drop_records(buf: &[u8], remove: &HashSet<&str>) -> Option<(Vec<u8>, usize)> {
+    let fields = pb_fields(buf, 0, buf.len())?;
+    let mut out = Vec::with_capacity(buf.len());
+    let mut dropped = 0;
+
+    for field in &fields {
+        let drop = field.number == 1
+            && field.wire == 2
+            && pb_record_id(buf, field).map_or(false, |id| remove.contains(id.as_str()));
+        if drop {
+            dropped += 1;
+            continue;
+        }
+        out.extend_from_slice(&buf[field.start..field.value_end]);
+    }
+
+    // The parse consumed the buffer exactly, so the rewrite is a pure subtraction.
+    Some((out, dropped))
 }
 
 struct SummaryDbRow {
@@ -122,16 +393,14 @@ impl AgentAdapter for AntigravityAdapter {
     }
 
     fn scan_sessions(&self) -> Vec<SessionSummary> {
-        let base = Self::gemini_home();
+        let base = self.gemini_home();
         if !base.exists() {
             return Vec::new();
         }
 
         let projects = Self::load_projects(&base);
         let mut summaries = Vec::new();
-        let flavors = [("cli", "antigravity-cli"), ("app", "antigravity"), ("ide", "antigravity-ide")];
-
-        for (flavor, dir_name) in flavors {
+        for (flavor, dir_name) in FLAVORS {
             let fdir = base.join(dir_name);
             if !fdir.exists() {
                 continue;
@@ -473,27 +742,265 @@ impl AgentAdapter for AntigravityAdapter {
     }
 
     fn prune_indexes(&self, session_ids: &[String]) -> usize {
-        let base = Self::gemini_home();
-        let mut pruned = 0;
-        let flavors = ["antigravity-cli", "antigravity", "antigravity-ide"];
-
-        for dir_name in flavors {
-            let db_path = base.join(dir_name).join("conversation_summaries.db");
-            if db_path.exists() {
-                if let Ok(conn) = Connection::open(&db_path) {
-                    for chunk in session_ids.chunks(400) {
-                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                        let query = format!("DELETE FROM conversation_summaries WHERE conversation_id IN ({})", placeholders);
-                        let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-                        if let Ok(count) = conn.execute(&query, rusqlite::params_from_iter(params)) {
-                            pruned += count;
-                        }
-                    }
-                    let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-                }
-            }
+        if session_ids.is_empty() {
+            return 0;
         }
 
-        pruned
+        let base = self.gemini_home();
+        let remove: HashSet<&str> = session_ids.iter().map(|s| s.as_str()).collect();
+
+        for (_, dir_name) in FLAVORS {
+            let fdir = base.join(dir_name);
+            if !fdir.exists() {
+                continue;
+            }
+            // The protobuf store is the source of truth; the SQLite file is only its mirror and is
+            // rebuilt from the store on every start, so it has to be cleared after the store.
+            Self::prune_summary_store(&fdir, &remove);
+            Self::prune_summary_db(&fdir, &remove);
+        }
+
+        // Report a session as removed only when no store still lists it. This makes a write that
+        // Antigravity rejected (say, a locked database, or a store this code cannot parse) show up
+        // as a failed deletion instead of a silent no-op.
+        let mut still_listed = HashSet::new();
+        let mut verifiable = true;
+        for (_, dir_name) in FLAVORS {
+            let (ids, ok) = Self::summary_ids(&base.join(dir_name));
+            still_listed.extend(ids);
+            verifiable &= ok;
+        }
+        if !verifiable {
+            return 0;
+        }
+        session_ids
+            .iter()
+            .filter(|id| !still_listed.contains(id.as_str()))
+            .count()
+    }
+
+    fn store_backed(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TempHome(PathBuf);
+
+    impl TempHome {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "asm_agy_{}_{}",
+                name,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            fs::create_dir_all(path.join("antigravity-cli")).unwrap();
+            Self(path)
+        }
+
+        fn cli(&self) -> PathBuf {
+            self.0.join("antigravity-cli")
+        }
+    }
+
+    impl Drop for TempHome {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Builds a store with the same shape Antigravity writes: repeated field 1 holding a
+    /// record message whose field 1 is the conversation id and field 2 is the summary blob.
+    fn store_bytes(records: &[(&str, &[u8])]) -> Vec<u8> {
+        fn varint(mut v: u64, out: &mut Vec<u8>) {
+            loop {
+                let b = (v & 0x7F) as u8;
+                v >>= 7;
+                if v == 0 {
+                    out.push(b);
+                    return;
+                }
+                out.push(b | 0x80);
+            }
+        }
+        fn tags(field: u64, len: usize, out: &mut Vec<u8>) {
+            varint((field << 3) | 2, out);
+            varint(len as u64, out);
+        }
+
+        let mut out = Vec::new();
+        for (id, payload) in records {
+            let mut record = Vec::new();
+            tags(1, id.len(), &mut record);
+            record.extend_from_slice(id.as_bytes());
+            tags(2, payload.len(), &mut record);
+            record.extend_from_slice(payload);
+            tags(1, record.len(), &mut out);
+            out.extend_from_slice(&record);
+        }
+        out
+    }
+
+    fn write_db(path: &Path, ids: &[&str]) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE conversation_summaries (
+                 conversation_id text PRIMARY KEY,
+                 title text NOT NULL DEFAULT '',
+                 preview text NOT NULL DEFAULT '',
+                 step_count integer NOT NULL DEFAULT 0,
+                 last_modified_time datetime NOT NULL,
+                 workspace_uris text NOT NULL,
+                 status text NOT NULL DEFAULT '',
+                 source text NOT NULL DEFAULT '',
+                 project_id text NOT NULL DEFAULT '',
+                 agent_name text NOT NULL DEFAULT '',
+                 parent_conversation_id text NOT NULL DEFAULT '',
+                 nesting_depth integer NOT NULL DEFAULT 0,
+                 battle_id text NOT NULL DEFAULT '',
+                 winning_conversation_id text NOT NULL DEFAULT '',
+                 not_fully_idle numeric NOT NULL DEFAULT false,
+                 killed numeric NOT NULL DEFAULT false,
+                 last_user_input_time datetime NOT NULL,
+                 last_user_input_step_index integer NOT NULL DEFAULT -1,
+                 app_data_dir text NOT NULL DEFAULT '',
+                 raw_summary BLOB,
+                 group_id text NOT NULL DEFAULT ''
+             );",
+        )
+        .unwrap();
+        for id in ids {
+            conn.execute(
+                "INSERT INTO conversation_summaries (conversation_id, last_modified_time, workspace_uris, last_user_input_time) VALUES (?1, '2026-01-01 00:00:00+00:00', '[]', '2026-01-01 00:00:00+00:00')",
+                [id],
+            )
+            .unwrap();
+        }
+    }
+
+    fn db_ids(path: &Path) -> Vec<String> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+        let mut stmt = conn.prepare("SELECT conversation_id FROM conversation_summaries").unwrap();
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+        rows.flatten().collect()
+    }
+
+    fn store_ids(path: &Path) -> Vec<String> {
+        let buf = fs::read(path).unwrap();
+        pb_fields(&buf, 0, buf.len())
+            .unwrap()
+            .iter()
+            .filter_map(|f| pb_record_id(&buf, f))
+            .collect()
+    }
+
+    #[test]
+    fn test_pb_drop_records_keeps_other_records_byte_for_byte() {
+        let buf = store_bytes(&[("a", b"payload-a"), ("b", b"payload-b"), ("c", b"payload-c")]);
+        let untouched = store_bytes(&[("a", b"payload-a"), ("c", b"payload-c")]);
+
+        let remove: HashSet<&str> = ["b"].into_iter().collect();
+        let (updated, dropped) = pb_drop_records(&buf, &remove).unwrap();
+
+        assert_eq!(dropped, 1);
+        assert_eq!(updated, untouched, "surviving records must not be rewritten");
+        assert_eq!(pb_drop_records(&buf, &HashSet::new()).unwrap().0, buf);
+    }
+
+    #[test]
+    fn test_pb_drop_records_rejects_unknown_layout() {
+        // Not a valid record stream: the caller must leave the file alone.
+        assert!(pb_drop_records(&[0xFF, 0xFF, 0xFF], &HashSet::new()).is_none());
+    }
+
+    #[test]
+    fn test_prune_removes_store_record_and_mirror_row() {
+        let home = TempHome::new("prune");
+        let store = home.cli().join("jetbox_summaries_proto.pb");
+        let db = home.cli().join("conversation_summaries.db");
+        let records = [("keep-1", &b"one"[..]), ("drop-me", &b"two"[..]), ("keep-2", &b"three"[..])];
+        fs::write(&store, store_bytes(&records)).unwrap();
+        write_db(&db, &["keep-1", "drop-me", "keep-2"]);
+
+        let adapter = AntigravityAdapter::with_home(home.0.clone());
+        let pruned = adapter.prune_indexes(&["drop-me".to_string()]);
+
+        assert_eq!(pruned, 1);
+        assert_eq!(store_ids(&store), vec!["keep-1", "keep-2"]);
+        assert_eq!(db_ids(&db), vec!["keep-1", "keep-2"]);
+        assert!(store.with_extension("pb.pre-prune").exists(), "a backup is kept");
+    }
+
+    #[test]
+    fn test_prune_reports_failure_when_the_store_still_lists_the_session() {
+        let home = TempHome::new("stubborn");
+        let store = home.cli().join("jetbox_summaries_proto.pb");
+        let db = home.cli().join("conversation_summaries.db");
+        // A layout this code does not understand: nothing may be rewritten, and the session must
+        // be reported as still present rather than silently counted as deleted.
+        fs::write(&store, [0xFF, 0xFF, 0xFF]).unwrap();
+        write_db(&db, &["stubborn"]);
+
+        let adapter = AntigravityAdapter::with_home(home.0.clone());
+        let pruned = adapter.prune_indexes(&["stubborn".to_string()]);
+
+        assert_eq!(pruned, 0);
+        assert_eq!(fs::read(&store).unwrap(), vec![0xFF, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn test_prune_reports_success_when_only_the_mirror_row_exists() {
+        let home = TempHome::new("mirror-only");
+        let db = home.cli().join("conversation_summaries.db");
+        write_db(&db, &["mirror-only"]);
+
+        let adapter = AntigravityAdapter::with_home(home.0.clone());
+        let pruned = adapter.prune_indexes(&["mirror-only".to_string()]);
+
+        assert_eq!(pruned, 1);
+        assert!(db_ids(&db).is_empty());
+    }
+
+    #[test]
+    fn test_prune_clears_the_search_index() {
+        let home = TempHome::new("fts");
+        let db = home.cli().join("conversation_summaries.db");
+        write_db(&db, &["keep", "drop"]);
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE conversations_fts USING fts5(conversation_id UNINDEXED, title);
+             INSERT INTO conversations_fts (conversation_id, title) VALUES ('keep', 'kept session');
+             INSERT INTO conversations_fts (conversation_id, title) VALUES ('drop', 'gone session');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let adapter = AntigravityAdapter::with_home(home.0.clone());
+        assert_eq!(adapter.prune_indexes(&["drop".to_string()]), 1);
+
+        let conn = Connection::open(&db).unwrap();
+        let dropped: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM conversations_fts WHERE conversation_id = 'drop'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let kept: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM conversations_fts WHERE conversation_id = 'keep'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(dropped, 0);
+        assert_eq!(kept, 1);
     }
 }

@@ -27,7 +27,7 @@ use crate::services::cleaner::{execute_cleanup as svc_execute_cleanup, plan_clea
 
 fn get_all_adapters() -> Vec<Box<dyn AgentAdapter>> {
     vec![
-        Box::new(AntigravityAdapter),
+        Box::new(AntigravityAdapter::new()),
         Box::new(ClaudeAdapter),
         Box::new(CodeBuddyAdapter),
         Box::new(CodexAdapter),
