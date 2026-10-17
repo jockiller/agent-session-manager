@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use rusqlite::{Connection, OpenFlags};
@@ -129,6 +129,51 @@ fn load_v2_stats(conn: &Connection) -> HashMap<String, V2SessionStats> {
         map.insert(sid, stats);
     }
     map
+}
+
+/// Sessions the running OpenCode process currently owns a drain for. Mirrors the
+/// `GET /api/session/active` endpoint: a session is active exactly while its drain is
+/// suspended, i.e. while `time_suspended` is set.
+fn load_running_v2(conn: &Connection) -> HashSet<String> {
+    let mut set = HashSet::new();
+    let mut stmt = match conn.prepare("SELECT id FROM session_v2 WHERE time_suspended IS NOT NULL")
+    {
+        Ok(s) => s,
+        Err(_) => return set,
+    };
+    let rows = match stmt.query_map([], |row| row.get::<_, String>(0)) {
+        Ok(r) => r,
+        Err(_) => return set,
+    };
+    for id in rows.flatten() {
+        set.insert(id);
+    }
+    set
+}
+
+/// Collect a session id together with all of its descendant (child) sessions.
+/// OpenCode deletes a session and its child sessions as one unit.
+fn collect_session_family(conn: &Connection, root: &str, is_v2: bool) -> Vec<String> {
+    let table = if is_v2 { "session_v2" } else { "session" };
+    let sql = format!(
+        "WITH RECURSIVE family(id) AS (
+             SELECT id FROM {table} WHERE id = ?1
+             UNION
+             SELECT s.id FROM {table} s JOIN family f ON s.parent_id = f.id
+         )
+         SELECT id FROM family",
+        table = table
+    );
+
+    let mut ids = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(&sql) {
+        if let Ok(rows) = stmt.query_map([root], |row| row.get::<_, String>(0)) {
+            for id in rows.flatten() {
+                ids.push(id);
+            }
+        }
+    }
+    ids
 }
 
 fn load_first_prompts_v2(conn: &Connection) -> HashMap<String, String> {
@@ -275,6 +320,7 @@ impl AgentAdapter for OpenCodeAdapter {
             let mut summaries = Vec::new();
             let first_prompts = load_first_prompts_v2(&conn);
             let msg_stats = load_v2_stats(&conn);
+            let running = load_running_v2(&conn);
 
             let rows = match stmt.query_map([], |row| {
                 let id: String = row.get(0)?;
@@ -371,7 +417,7 @@ impl AgentAdapter for OpenCodeAdapter {
                     turn_count,
                     is_subagent,
                     parent_id,
-                    is_running: false,
+                    is_running: running.contains(&id),
                     has_transcript: true,
                     token_stats,
                 });
@@ -711,31 +757,77 @@ impl AgentAdapter for OpenCodeAdapter {
 
         let mut pruned = 0;
         if let Some(db_path) = self.find_db() {
-            if let Ok(conn) = Connection::open(&db_path) {
+            if let Ok(mut conn) = Connection::open(&db_path) {
                 let is_v2 = is_v2_schema(&conn);
-                for id in session_ids {
-                    if is_v2 {
-                        let _ = conn.execute("DELETE FROM session_message WHERE session_id = ?", [id]);
-                        let _ = conn.execute("DELETE FROM session_inbox WHERE session_id = ?", [id]);
-                        let _ = conn.execute("DELETE FROM session_pending WHERE session_id = ?", [id]);
-                        let _ = conn.execute("DELETE FROM instruction_entry WHERE session_id = ?", [id]);
-                        let _ = conn.execute("DELETE FROM instruction_state WHERE session_id = ?", [id]);
-                        if let Ok(c) = conn.execute("DELETE FROM session_v2 WHERE id = ?", [id]) {
-                            pruned += c;
+                let table = if is_v2 { "session_v2" } else { "session" };
+
+                // The whole batch runs as one transaction, so a commit that fails leaves the store
+                // untouched instead of half-deleted. Child rows are cleared explicitly because this
+                // connection does not enable foreign key enforcement.
+                let mut families: Vec<Vec<String>> = Vec::new();
+                if let Ok(tx) = conn.transaction() {
+                    for id in session_ids {
+                        // OpenCode removes a session together with its child sessions.
+                        let mut family = collect_session_family(&tx, id, is_v2);
+                        if family.is_empty() {
+                            // The lookup itself failed (or the session is already gone); fall back to
+                            // the requested id so the row is still removed and verified below.
+                            family.push(id.clone());
                         }
-                    } else {
-                        let _ = conn.execute("DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ?)", [id]);
-                        let _ = conn.execute("DELETE FROM message WHERE session_id = ?", [id]);
-                        if let Ok(c) = conn.execute("DELETE FROM session WHERE id = ?", [id]) {
-                            pruned += c;
+                        for sid in &family {
+                            if is_v2 {
+                                let _ = tx.execute("DELETE FROM session_message WHERE session_id = ?", [sid]);
+                                let _ = tx.execute("DELETE FROM session_inbox WHERE session_id = ?", [sid]);
+                                let _ = tx.execute("DELETE FROM session_pending WHERE session_id = ?", [sid]);
+                                let _ = tx.execute("DELETE FROM instruction_entry WHERE session_id = ?", [sid]);
+                                let _ = tx.execute("DELETE FROM instruction_state WHERE session_id = ?", [sid]);
+                            } else {
+                                let _ = tx.execute("DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ?)", [sid]);
+                                let _ = tx.execute("DELETE FROM message WHERE session_id = ?", [sid]);
+                            }
                         }
+                        for sid in &family {
+                            let _ = tx.execute(&format!("DELETE FROM {} WHERE id = ?", table), [sid]);
+                        }
+                        families.push(family);
+                    }
+                    if tx.commit().is_err() {
+                        // Nothing was written, so nothing may be reported as removed.
+                        families.clear();
                     }
                 }
+
                 let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+
+                // Only report a session as removed once the store confirms its whole family is gone,
+                // so a partially applied batch is reported as a failure rather than a success.
+                for family in &families {
+                    let mut remaining = 0i64;
+                    for sid in family {
+                        remaining += conn
+                            .query_row(
+                                &format!("SELECT count(*) FROM {} WHERE id = ?", table),
+                                [sid],
+                                |row| row.get::<_, i64>(0),
+                            )
+                            .unwrap_or(1);
+                    }
+                    if remaining == 0 {
+                        pruned += 1;
+                    }
+                }
             }
         }
 
         pruned
+    }
+
+    fn store_backed(&self) -> bool {
+        true
+    }
+
+    fn deletes_descendants(&self) -> bool {
+        true
     }
 }
 
@@ -788,7 +880,8 @@ mod tests {
                 tokens_cache_read integer DEFAULT 0 NOT NULL,
                 tokens_cache_write integer DEFAULT 0 NOT NULL,
                 time_created integer NOT NULL,
-                time_updated integer NOT NULL
+                time_updated integer NOT NULL,
+                time_suspended integer
             );
 
             CREATE TABLE session_message (
@@ -869,6 +962,7 @@ mod tests {
         assert_eq!(t.cache_read_tokens, 400);
         assert_eq!(t.cache_write_tokens, 100);
         assert_eq!(t.reasoning_tokens, 50);
+        assert!(!s.is_running);
 
         let msgs = adapter.load_messages(s, 50);
         assert_eq!(msgs.len(), 2);
@@ -943,5 +1037,172 @@ mod tests {
         let pruned = adapter.prune_indexes(&[session_id.to_string()]);
         assert_eq!(pruned, 1);
         assert_eq!(adapter.scan_sessions().len(), 0);
+    }
+
+    #[test]
+    fn test_opencode_v2_delete_cascades_children_and_flags_running() {
+        let temp_dir = TestDir::new("opencode_v2_cascade");
+        let db_path = temp_dir.path().join("opencode.db");
+        let conn = Connection::open(&db_path).unwrap();
+
+        conn.execute_batch(
+            r#"
+            CREATE TABLE session_v2 (
+                id text PRIMARY KEY,
+                project_id text NOT NULL,
+                parent_id text,
+                directory text NOT NULL,
+                title text,
+                model text,
+                tokens_input integer DEFAULT 0 NOT NULL,
+                tokens_output integer DEFAULT 0 NOT NULL,
+                tokens_reasoning integer DEFAULT 0 NOT NULL,
+                tokens_cache_read integer DEFAULT 0 NOT NULL,
+                tokens_cache_write integer DEFAULT 0 NOT NULL,
+                time_created integer NOT NULL,
+                time_updated integer NOT NULL,
+                time_suspended integer
+            );
+
+            CREATE TABLE session_message (
+                id text PRIMARY KEY,
+                session_id text NOT NULL,
+                type text NOT NULL,
+                seq integer NOT NULL,
+                time_created integer NOT NULL,
+                time_updated integer NOT NULL,
+                data text NOT NULL
+            );
+
+            CREATE TABLE session_inbox (
+                id text PRIMARY KEY,
+                session_id text NOT NULL,
+                type text NOT NULL,
+                payload text NOT NULL,
+                delivery text NOT NULL,
+                enqueued_seq integer NOT NULL,
+                time_created integer NOT NULL
+            );
+
+            CREATE TABLE session_pending (
+                id text PRIMARY KEY,
+                session_id text NOT NULL,
+                type text NOT NULL,
+                data text NOT NULL,
+                delivery text,
+                admitted_seq integer NOT NULL,
+                time_created integer NOT NULL
+            );
+
+            CREATE TABLE instruction_entry (
+                session_id text NOT NULL,
+                key text NOT NULL,
+                value text,
+                removed integer DEFAULT false NOT NULL,
+                time_created integer NOT NULL,
+                time_updated integer NOT NULL,
+                PRIMARY KEY (session_id, key)
+            );
+
+            CREATE TABLE instruction_state (
+                session_id text PRIMARY KEY,
+                epoch_start integer NOT NULL,
+                through_seq integer NOT NULL,
+                initial_values text NOT NULL,
+                current_values text NOT NULL
+            );
+            "#,
+        ).unwrap();
+
+        // parent -> child -> grandchild, plus an unrelated session
+        let rows: [(&str, Option<&str>, Option<i64>); 4] = [
+            ("ses_parent", None, None),
+            ("ses_child", Some("ses_parent"), None),
+            ("ses_grandchild", Some("ses_child"), Some(1000)),
+            ("ses_other", None, None),
+        ];
+        for (id, parent, suspended) in rows {
+            conn.execute(
+                "INSERT INTO session_v2 (id, project_id, parent_id, directory, title, time_created, time_updated, time_suspended) VALUES (?1, 'proj', ?2, '/w', ?1, 1000, 1000, ?3)",
+                rusqlite::params![id, parent, suspended],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?1 || '_m', ?1, 'user', 1, 1000, 1000, '{}')",
+                [id],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO session_inbox (id, session_id, type, payload, delivery, enqueued_seq, time_created) VALUES (?1 || '_i', ?1, 'prompt', '{}', 'immediate', 1, 1000)",
+                [id],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO session_pending (id, session_id, type, data, admitted_seq, time_created) VALUES (?1 || '_p', ?1, 'compaction', '{}', 1, 1000)",
+                [id],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO instruction_entry (session_id, key, value, removed, time_created, time_updated) VALUES (?1, 'k', 'v', 0, 1000, 1000)",
+                [id],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO instruction_state (session_id, epoch_start, through_seq, initial_values, current_values) VALUES (?1, 1, 1, '{}', '{}')",
+                [id],
+            ).unwrap();
+        }
+
+        drop(conn);
+
+        let adapter = OpenCodeAdapter::with_dirs("opencode", "OpenCode", vec![temp_dir.path().to_path_buf()]);
+        let sessions = adapter.scan_sessions();
+        assert_eq!(sessions.len(), 4);
+
+        // time_suspended marks the sessions the running process currently owns a drain for
+        let running: Vec<String> = sessions
+            .iter()
+            .filter(|s| s.is_running)
+            .map(|s| s.id.clone())
+            .collect();
+        assert_eq!(running, vec!["ses_grandchild".to_string()]);
+
+        // The adapter deletes exactly what it is asked for, including a running session: skipping
+        // running sessions is the cleanup's decision, not the adapter's.
+        assert!(adapter.deletes_descendants());
+
+        // Deleting the parent also removes every descendant, and the requested session counts once
+        let pruned = adapter.prune_indexes(&["ses_parent".to_string()]);
+        assert_eq!(pruned, 1);
+
+        let remaining: Vec<String> = adapter.scan_sessions().into_iter().map(|s| s.id).collect();
+        assert_eq!(remaining, vec!["ses_other".to_string()]);
+
+        // Every session-owned table must be cleared for the deleted family and untouched for the
+        // unrelated session, so a wrong table name fails here instead of silently leaking rows.
+        let conn = Connection::open(&db_path).unwrap();
+        for table in [
+            "session_message",
+            "session_inbox",
+            "session_pending",
+            "instruction_entry",
+            "instruction_state",
+        ] {
+            let leftover: i64 = conn
+                .query_row(
+                    &format!(
+                        "SELECT count(*) FROM {} WHERE session_id IN ('ses_parent', 'ses_child', 'ses_grandchild')",
+                        table
+                    ),
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(leftover, 0, "{} rows of the deleted family must be gone", table);
+
+            let kept: i64 = conn
+                .query_row(
+                    &format!("SELECT count(*) FROM {} WHERE session_id = 'ses_other'", table),
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(kept, 1, "{} row of the unrelated session must survive", table);
+        }
     }
 }

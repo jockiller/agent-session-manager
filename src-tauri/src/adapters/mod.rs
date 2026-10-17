@@ -174,7 +174,24 @@ pub trait AgentAdapter: Send + Sync {
     fn display_name(&self) -> &'static str;
     fn scan_sessions(&self) -> Vec<SessionSummary>;
     fn load_messages(&self, session: &SessionSummary, max_msgs: usize) -> Vec<ChatMessage>;
+
+    /// Remove the given sessions from any agent-side index or store.
+    ///
+    /// Returns how many of the requested sessions are confirmed gone from that store.
     fn prune_indexes(&self, session_ids: &[String]) -> usize;
+
+    /// Whether the sessions live only in the agent's own store (database or index) instead of
+    /// files on disk. For such agents the store rows are the only proof a session is gone, so
+    /// the cleanup reports a failed deletion when `prune_indexes` does not remove them all.
+    fn store_backed(&self) -> bool {
+        false
+    }
+
+    /// Whether removing a session also removes its child sessions, as OpenCode's own delete does.
+    /// The cleanup must not delete a parent while one of those children is still running.
+    fn deletes_descendants(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

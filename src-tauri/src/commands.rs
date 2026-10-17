@@ -85,7 +85,8 @@ pub fn plan_cleanup_cmd(
     target_ids: Vec<String>,
     force: Option<bool>,
 ) -> CleanupPlan {
-    svc_plan_cleanup(&all_sessions, &target_ids, force.unwrap_or(false))
+    let adapters = get_all_adapters();
+    svc_plan_cleanup(&all_sessions, &target_ids, force.unwrap_or(false), &adapters)
 }
 
 #[tauri::command]
