@@ -128,6 +128,7 @@ impl AgentAdapter for GeminiAdapter {
                     is_subagent: false,
                     parent_id: None,
                     is_running: false,
+                    is_archived: false,
                     has_transcript: true,
                     token_stats: None,
                 });

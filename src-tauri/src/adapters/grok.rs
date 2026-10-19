@@ -222,6 +222,7 @@ impl AgentAdapter for GrokAdapter {
                             is_subagent,
                             parent_id: None,
                             is_running: false,
+                            is_archived: false,
                             has_transcript: chat_file.exists(),
                             token_stats,
                         });

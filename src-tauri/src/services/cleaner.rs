@@ -287,6 +287,7 @@ mod tests {
             is_subagent: parent.is_some(),
             parent_id: parent.map(|p| p.to_string()),
             is_running: running,
+            is_archived: false,
             has_transcript: true,
             token_stats: None,
         }

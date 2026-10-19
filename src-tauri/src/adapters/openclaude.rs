@@ -206,6 +206,7 @@ impl AgentAdapter for OpenClaudeAdapter {
                                     is_subagent: false,
                                     parent_id: None,
                                     is_running: false,
+                                    is_archived: false,
                                     has_transcript: true,
                                     token_stats,
                                 });
@@ -315,6 +316,7 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                         is_subagent: true,
                                                         parent_id: Some(sid.to_string()),
                                                         is_running: false,
+                                                        is_archived: false,
                                                         has_transcript: true,
                                                         token_stats: sub_stats,
                                                     });

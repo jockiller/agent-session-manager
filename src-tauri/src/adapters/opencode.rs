@@ -418,6 +418,7 @@ impl AgentAdapter for OpenCodeAdapter {
                     is_subagent,
                     parent_id,
                     is_running: running.contains(&id),
+                    is_archived: false,
                     has_transcript: true,
                     token_stats,
                 });
@@ -487,6 +488,7 @@ impl AgentAdapter for OpenCodeAdapter {
                 is_subagent,
                 parent_id,
                 is_running: false,
+                is_archived: false,
                 has_transcript: true,
                 token_stats: None,
             });

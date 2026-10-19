@@ -258,6 +258,9 @@ pub fn calculate_global_stats(sessions: Vec<SessionSummary>) -> GlobalStats {
         if s.is_running {
             stats.running_count += 1;
         }
+        if s.is_archived {
+            stats.archived_count += 1;
+        }
         if !s.has_transcript {
             stats.orphan_count += 1;
         }

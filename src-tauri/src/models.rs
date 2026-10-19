@@ -20,6 +20,9 @@ pub struct SessionSummary {
     pub is_subagent: bool,
     pub parent_id: Option<String>,
     pub is_running: bool,
+    /// Archived by the agent's own UI (currently DSH's workspace archive).
+    #[serde(default)]
+    pub is_archived: bool,
     pub has_transcript: bool,
     pub token_stats: Option<TokenStats>,
 }
@@ -80,6 +83,7 @@ pub struct GlobalStats {
     pub subagents: usize,
     pub total_bytes: u64,
     pub running_count: usize,
+    pub archived_count: usize,
     pub orphan_count: usize,
     pub total_prompt_tokens: u64,
     pub total_completion_tokens: u64,

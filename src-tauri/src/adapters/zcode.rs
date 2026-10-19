@@ -382,6 +382,7 @@ impl AgentAdapter for ZCodeAdapter {
                 is_subagent,
                 parent_id,
                 is_running: false,
+                is_archived: false,
                 has_transcript: true,
                 token_stats,
             });

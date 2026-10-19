@@ -654,6 +654,7 @@ impl AgentAdapter for AntigravityAdapter {
                     is_subagent,
                     parent_id,
                     is_running,
+                    is_archived: false,
                     has_transcript,
                     token_stats,
                 });
