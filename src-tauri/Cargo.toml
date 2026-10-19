@@ -1,6 +1,6 @@
 [package]
 name = "agent-session-manager"
-version = "0.1.6"
+version = "0.1.7"
 description = "Unified session manager & disk optimizer for AI coding agents"
 authors = ["you"]
 edition = "2021"
