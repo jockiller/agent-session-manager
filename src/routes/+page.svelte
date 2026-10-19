@@ -38,7 +38,7 @@
   // Filter & Search states
   let searchQuery = $state("");
   let selectedPlatform = $state("all");
-  let selectedFilter = $state<"all" | "running" | "starred" | "orphans">("all");
+  let selectedFilter = $state<"all" | "running" | "starred" | "archived" | "orphans">("all");
   let selectedWorkspace = $state("all");
   let selectedTimeRange = $state("all");
   let customStartDate = $state("");
@@ -113,6 +113,7 @@
       // Quick view filter
       if (selectedFilter === "running" && !s.is_running) return false;
       if (selectedFilter === "starred" && !starredIds.has(s.id)) return false;
+      if (selectedFilter === "archived" && !s.is_archived) return false;
       if (selectedFilter === "orphans" && s.has_transcript) return false;
 
       // Workspace filter

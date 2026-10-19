@@ -20,6 +20,7 @@
     X,
     Database,
     Activity,
+    Archive,
     RotateCcw,
     Calendar,
   } from "@lucide/svelte";
@@ -752,6 +753,13 @@
                   </span>
                 {/if}
 
+                {#if node.session.is_archived}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-violet-50 text-violet-700 border border-violet-200">
+                    <Archive class="h-2.5 w-2.5" />
+                    {t("archived")}
+                  </span>
+                {/if}
+
                 {#if !node.session.has_transcript}
                   <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-amber-50 text-amber-700 border border-amber-200">
                     <AlertCircle class="h-2.5 w-2.5" />
@@ -947,6 +955,13 @@
                 <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
                   <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   {t("running")}
+                </span>
+              {/if}
+
+              {#if s.is_archived}
+                <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-violet-50 text-violet-700 border border-violet-200">
+                  <Archive class="h-2.5 w-2.5" />
+                  {t("archived")}
                 </span>
               {/if}
 

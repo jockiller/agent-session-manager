@@ -15,6 +15,7 @@ export interface SessionSummary {
   is_subagent: boolean;
   parent_id?: string | null;
   is_running: boolean;
+  is_archived: boolean;
   has_transcript: boolean;
   token_stats?: TokenStats | null;
 }
@@ -80,6 +81,7 @@ export interface GlobalStats {
   subagents: number;
   total_bytes: number;
   running_count: number;
+  archived_count: number;
   orphan_count: number;
   total_prompt_tokens: number;
   total_completion_tokens: number;

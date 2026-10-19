@@ -6,6 +6,7 @@
     Star,
     AlertCircle,
     Activity,
+    Archive,
     Search,
     X,
   } from "@lucide/svelte";
@@ -14,14 +15,14 @@
 
   let {
     selectedPlatform = $bindable("all"),
-    selectedFilter = $bindable<"all" | "running" | "starred" | "orphans">("all"),
+    selectedFilter = $bindable<"all" | "running" | "starred" | "archived" | "orphans">("all"),
     stats = null,
     isLoading = false,
     starredCount = 0,
     onRefresh,
   }: {
     selectedPlatform: string;
-    selectedFilter: "all" | "running" | "starred" | "orphans";
+    selectedFilter: "all" | "running" | "starred" | "archived" | "orphans";
     stats: GlobalStats | null;
     isLoading: boolean;
     starredCount: number;
@@ -182,6 +183,26 @@
       {#if starredCount > 0}
         <span class="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
           {starredCount}
+        </span>
+      {:else}
+        <span class="text-[10px] text-slate-400 font-mono">0</span>
+      {/if}
+    </button>
+
+    <!-- Archived -->
+    <button
+      onclick={() => { selectedFilter = "archived"; }}
+      class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer {selectedFilter === 'archived'
+        ? 'bg-white text-violet-800 font-semibold shadow-2xs border border-slate-200/80'
+        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}"
+    >
+      <div class="flex items-center gap-2">
+        <Archive class="h-3.5 w-3.5 text-violet-500" />
+        <span>{t("archived")}</span>
+      </div>
+      {#if stats && stats.archived_count > 0}
+        <span class="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+          {stats.archived_count}
         </span>
       {:else}
         <span class="text-[10px] text-slate-400 font-mono">0</span>
