@@ -20,7 +20,7 @@ pub struct SessionSummary {
     pub is_subagent: bool,
     pub parent_id: Option<String>,
     pub is_running: bool,
-    /// Archived by the agent's own UI (currently DSH's workspace archive).
+    /// Archived by the agent's own UI (DSH workspace archive, OpenCode `time_archived`).
     #[serde(default)]
     pub is_archived: bool,
     pub has_transcript: bool,

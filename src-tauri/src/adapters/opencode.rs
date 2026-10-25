@@ -135,9 +135,19 @@ fn load_v2_stats(conn: &Connection) -> HashMap<String, V2SessionStats> {
 /// `GET /api/session/active` endpoint: a session is active exactly while its drain is
 /// suspended, i.e. while `time_suspended` is set.
 fn load_running_v2(conn: &Connection) -> HashSet<String> {
+    load_v2_ids(conn, "SELECT id FROM session_v2 WHERE time_suspended IS NOT NULL")
+}
+
+/// Sessions the OpenCode UI has archived. OpenCode stores that as `time_archived`
+/// on `session_v2`; a non-null timestamp means archived. Older databases without
+/// the column fail the prepare and are treated as having none archived.
+fn load_archived_v2(conn: &Connection) -> HashSet<String> {
+    load_v2_ids(conn, "SELECT id FROM session_v2 WHERE time_archived IS NOT NULL")
+}
+
+fn load_v2_ids(conn: &Connection, sql: &str) -> HashSet<String> {
     let mut set = HashSet::new();
-    let mut stmt = match conn.prepare("SELECT id FROM session_v2 WHERE time_suspended IS NOT NULL")
-    {
+    let mut stmt = match conn.prepare(sql) {
         Ok(s) => s,
         Err(_) => return set,
     };
@@ -321,6 +331,7 @@ impl AgentAdapter for OpenCodeAdapter {
             let first_prompts = load_first_prompts_v2(&conn);
             let msg_stats = load_v2_stats(&conn);
             let running = load_running_v2(&conn);
+            let archived = load_archived_v2(&conn);
 
             let rows = match stmt.query_map([], |row| {
                 let id: String = row.get(0)?;
@@ -418,7 +429,7 @@ impl AgentAdapter for OpenCodeAdapter {
                     is_subagent,
                     parent_id,
                     is_running: running.contains(&id),
-                    is_archived: false,
+                    is_archived: archived.contains(&id),
                     has_transcript: true,
                     token_stats,
                 });
@@ -965,6 +976,7 @@ mod tests {
         assert_eq!(t.cache_write_tokens, 100);
         assert_eq!(t.reasoning_tokens, 50);
         assert!(!s.is_running);
+        assert!(!s.is_archived);
 
         let msgs = adapter.load_messages(s, 50);
         assert_eq!(msgs.len(), 2);
@@ -980,6 +992,56 @@ mod tests {
         let pruned = adapter.prune_indexes(&[session_id.to_string()]);
         assert_eq!(pruned, 1);
         assert_eq!(adapter.scan_sessions().len(), 0);
+    }
+
+    #[test]
+    fn test_opencode_v2_flags_archived() {
+        let temp_dir = TestDir::new("opencode_v2_archived");
+        let db_path = temp_dir.path().join("opencode.db");
+        let conn = Connection::open(&db_path).unwrap();
+
+        conn.execute_batch(
+            r#"
+            CREATE TABLE session_v2 (
+                id text PRIMARY KEY,
+                project_id text NOT NULL,
+                parent_id text,
+                directory text NOT NULL,
+                title text,
+                model text,
+                tokens_input integer DEFAULT 0 NOT NULL,
+                tokens_output integer DEFAULT 0 NOT NULL,
+                tokens_reasoning integer DEFAULT 0 NOT NULL,
+                tokens_cache_read integer DEFAULT 0 NOT NULL,
+                tokens_cache_write integer DEFAULT 0 NOT NULL,
+                time_created integer NOT NULL,
+                time_updated integer NOT NULL,
+                time_suspended integer,
+                time_archived integer
+            );
+            "#,
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO session_v2 (id, project_id, directory, title, time_created, time_updated, time_archived) VALUES ('ses_live', 'proj', '/w', 'live', 1000, 2000, NULL)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO session_v2 (id, project_id, directory, title, time_created, time_updated, time_archived) VALUES ('ses_archived', 'proj', '/w', 'archived', 1000, 3000, 4000)",
+            [],
+        ).unwrap();
+        drop(conn);
+
+        let adapter = OpenCodeAdapter::with_dirs("opencode", "OpenCode", vec![temp_dir.path().to_path_buf()]);
+        let sessions = adapter.scan_sessions();
+        assert_eq!(sessions.len(), 2);
+
+        let live = sessions.iter().find(|s| s.id == "ses_live").expect("live session");
+        let archived = sessions.iter().find(|s| s.id == "ses_archived").expect("archived session");
+        assert!(!live.is_archived);
+        assert!(!live.is_running);
+        assert!(archived.is_archived);
+        assert!(!archived.is_running);
     }
 
     #[test]
