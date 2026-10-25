@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Changelog entries start with 0.1.7. Earlier releases are documented in
 [GitHub Releases](https://github.com/jockiller/agent-session-manager/releases).
 
+## [0.1.8] - 2026-10-25
+
+### Fixed
+
+- **OpenCode archived sessions**: OpenCode V2 stores archive state as
+  `session_v2.time_archived`. The adapter now treats a non-null timestamp as
+  archived, so those sessions appear in the Archived sidebar view. Databases
+  without the column keep scanning as unarchived.
+
 ## [0.1.7] - 2026-10-19
 
 ### Added
