@@ -29,6 +29,9 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 - **Anthropic thinking on DSH and omp**: newer Claude models on DSH are marked for adaptive
   thinking, and omp writes the thinking mode each Claude generation expects.
+- **Antigravity sessions no longer stay "running"**: Antigravity leaves
+  `presence/<id>.lock` behind after a conversation ends, so running state is now probed
+  through the file lock instead of the file's existence (the same check DSH uses).
 - Modal backdrops no longer trigger accessibility warnings.
 
 ### Removed
