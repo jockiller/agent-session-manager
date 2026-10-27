@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Changelog entries start with 0.1.7. Earlier releases are documented in
 [GitHub Releases](https://github.com/jockiller/agent-session-manager/releases).
 
+## [0.2.0] - 2026-10-27
+
+### Added
+
+- **Agent config manager**: a new "Config" mode in the title bar manages model providers,
+  MCP servers and AGENTS.md in one place and exports them to OpenCode, DSH, ZCode, Grok, Pi
+  and omp. Providers can pull their model list from the relay's catalog, enriched with
+  context, output, input modalities and thinking levels from models.dev. MCP servers can be
+  imported by pasting Claude / OpenCode / Codex JSON or Grok TOML. Each agent picks its own
+  models, default model, thinking level and MCP servers.
+- **Safe export**: every file an export changes is first backed up under the app data
+  directory (latest 20 exports are kept); unchanged files are not rewritten, and a second
+  export with the same settings is a no-op. Entries the app does not own are preserved.
+- **Google protocol providers**: exported natively to OpenCode, Pi and omp. ZCode, DSH and
+  Grok cannot speak it, so those providers are skipped there unless a verified
+  OpenAI-compatible Chat URL is set ("Check Chat compatibility").
+
+### Fixed
+
+- **Anthropic thinking on DSH and omp**: newer Claude models on DSH are marked for adaptive
+  thinking, and omp writes the thinking mode each Claude generation expects.
+- Modal backdrops no longer trigger accessibility warnings.
+
+### Removed
+
+- **Token analytics**: token, cache-hit and throughput statistics are gone from the session
+  list, inspector, cleanup dialog and title bar. Session size, turns and timing remain.
+
 ## [0.1.8] - 2026-10-25
 
 ### Fixed
