@@ -34,7 +34,7 @@
 
 **Agent Session Manager** is a sleek, high-performance desktop application built with **Tauri 2**, **Svelte 5**, and **Rust**. It provides a unified workspace to discover, inspect, resume, and clean up historical sessions from across modern AI coding agents and CLI tools.
 
-As developers adopt diverse AI agents (Claude Code, OpenAI Codex, OpenCode, OpenClaw, Gemini, Cursor, etc.), session logs and transcripts become scattered in hidden folders, eating up gigabytes of disk space and making past discussions difficult to resume. **Agent Session Manager** brings all agent sessions under one roof with real-time inspection, token analytics, and instant terminal resumption.
+As developers adopt diverse AI agents (Claude Code, OpenAI Codex, OpenCode, OpenClaw, Gemini, Cursor, etc.), session logs and transcripts become scattered in hidden folders, eating up gigabytes of disk space and making past discussions difficult to resume. **Agent Session Manager** brings all agent sessions under one roof with real-time inspection, instant terminal resumption, and one place to manage agent configuration.
 
 ---
 
@@ -43,7 +43,7 @@ As developers adopt diverse AI agents (Claude Code, OpenAI Codex, OpenCode, Open
 - **Multi-Agent Unified Workspace**: Automatically scans and detects sessions across 18+ agent ecosystems.
 - **Deep Session Inspection**: View conversation turns, user prompts, assistant answers, thinking processes, and tool call invocations in a clean markdown viewer.
 - **Instant Resume in Terminal**: Click the **Resume** button to launch your terminal emulator (Terminal, iTerm2, Ghostty, Alacritty, WezTerm, Kitty) and resume the session with the exact command.
-- **Storage & Token Analytics**: Visualize prompt/completion token usage, cache hits, estimated API costs, and disk space occupied by transcripts.
+- **Agent Config Manager**: Manage model providers, MCP servers and AGENTS.md in one place, then export them to OpenCode, DSH, ZCode, Grok, Pi and omp. Changed files are backed up before every export.
 - **Safe Session Cleanup**: Filter and safely purge old, stale, or abandoned agent sessions to reclaim disk space with one click.
 - **Native Look & Feel**: Built with Tauri 2 with macOS vibrancy, native title bar overlay, smooth fluid animations, and lightweight memory footprint (< 40MB RAM).
 - **Internationalization (i18n)**: Full multilingual support for English, Simplified Chinese, Traditional Chinese, Japanese, and Korean.
@@ -57,7 +57,7 @@ As developers adopt diverse AI agents (Claude Code, OpenAI Codex, OpenCode, Open
 | :--- | :--- | :--- |
 | **Claude Code** | CLI | Full transcript parsing, cost calculation, resume command |
 | **OpenAI Codex** | CLI | Session discovery, multi-turn history |
-| **OpenCode** | CLI / TUI | Session tree inspection, token tracking |
+| **OpenCode** | CLI / TUI | Session tree inspection, archived sessions |
 | **OpenClaw** | CLI / Agent | Conversation log decoding, tool inspection |
 | **DeepSeek Helper (DSH)** | CLI / Plugin | Plugin session history & usage metrics |
 | **Google Gemini CLI** | CLI | Multi-turn reasoning traces |
