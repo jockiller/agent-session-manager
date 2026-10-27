@@ -40,25 +40,6 @@ export function formatTimeAgo(ts: number): string {
   return t("time_mo_ago", { n: Math.floor(days / 30) });
 }
 
-export function formatTokens(tokens: number | null | undefined): string {
-  if (!tokens || tokens <= 0 || !Number.isFinite(tokens)) return "0";
-  if (tokens >= 1_000_000_000) {
-    return `${(tokens / 1_000_000_000).toFixed(2)}B`;
-  }
-  if (tokens >= 1_000_000) {
-    return `${(tokens / 1_000_000).toFixed(1)}M`;
-  }
-  if (tokens >= 1_000) {
-    return `${(tokens / 1_000).toFixed(1)}k`;
-  }
-  return Math.round(tokens).toLocaleString();
-}
-
-export function formatNumber(num: number): string {
-  if (num === undefined || num === null) return "0";
-  return num.toLocaleString();
-}
-
 export function getPlatformBadge(platform: string): string {
   if (!platform) return "bg-slate-100 text-slate-800 border-slate-200";
   switch (platform.toLowerCase()) {

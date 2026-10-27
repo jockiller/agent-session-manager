@@ -76,7 +76,6 @@ impl AgentAdapter for GrokAdapter {
                         let sid = spath.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
                         let summary_file = spath.join("summary.json");
                         let chat_file = spath.join("chat_history.jsonl");
-                        let usage_file = spath.join("usage.json");
                         let prompt_ctx_file = spath.join("prompt_context.json");
 
                         let mut title = String::new();
@@ -132,34 +131,6 @@ impl AgentAdapter for GrokAdapter {
                                             if let Some(sub_id) = cap.get(1) {
                                                 subagent_parent_map.insert(sub_id.as_str().to_string(), sid.clone());
                                             }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Parse token stats from usage.json
-                        let mut token_stats = None;
-                        if usage_file.exists() {
-                            if let Ok(text) = fs::read_to_string(&usage_file) {
-                                if let Ok(uv) = serde_json::from_str::<Value>(&text) {
-                                    if let Some(sess) = uv.get("session") {
-                                        let in_tokens = sess.get("inputTokens").and_then(Value::as_u64).unwrap_or(0);
-                                        let out_tokens = sess.get("outputTokens").and_then(Value::as_u64).unwrap_or(0);
-                                        let cache_read = sess.get("cachedReadTokens").and_then(Value::as_u64).unwrap_or(0);
-                                        let reasoning = sess.get("reasoningTokens").and_then(Value::as_u64).unwrap_or(0);
-                                        let total_tokens = sess.get("totalTokens").and_then(Value::as_u64).unwrap_or(in_tokens + out_tokens);
-                                        token_stats = Some(crate::services::token_calc::make_stats_extended(
-                                            &model,
-                                            in_tokens,
-                                            out_tokens,
-                                            cache_read,
-                                            0,
-                                            reasoning,
-                                            None,
-                                        ));
-                                        if let Some(ref mut ts) = token_stats {
-                                            ts.total_tokens = total_tokens;
                                         }
                                     }
                                 }
@@ -224,7 +195,6 @@ impl AgentAdapter for GrokAdapter {
                             is_running: false,
                             is_archived: false,
                             has_transcript: chat_file.exists(),
-                            token_stats,
                         });
                     }
                 }

@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use crate::adapters::AgentAdapter;
 use crate::models::{ChatMessage, SessionSummary, ToolCallItem};
-use crate::services::token_calc::make_stats_extended;
 
 pub struct PiAdapter {
     pub is_omp: bool,
@@ -97,11 +96,6 @@ impl AgentAdapter for PiAdapter {
             let mut created_at = 0i64;
             let mut updated_at = 0i64;
             let mut turn_count = 0u32;
-            let mut in_tokens = 0u64;
-            let mut out_tokens = 0u64;
-            let mut cache_read = 0u64;
-            let mut cache_write = 0u64;
-            let mut reasoning = 0u64;
             let mut model = if self.is_omp { "omp".to_string() } else { "pi".to_string() };
 
             if let Ok(file) = File::open(path) {
@@ -171,13 +165,6 @@ impl AgentAdapter for PiAdapter {
                                             model = m.to_string();
                                         }
                                     }
-                                    if let Some(usage) = msg.get("usage") {
-                                        in_tokens += usage.get("input").and_then(Value::as_u64).unwrap_or(0);
-                                        out_tokens += usage.get("output").and_then(Value::as_u64).unwrap_or(0);
-                                        cache_read += usage.get("cacheRead").and_then(Value::as_u64).unwrap_or(0);
-                                        cache_write += usage.get("cacheWrite").and_then(Value::as_u64).unwrap_or(0);
-                                        reasoning += usage.get("reasoning").and_then(Value::as_u64).unwrap_or(0);
-                                    }
                                 }
                             }
                             if let Some(ts) = val.get("timestamp").and_then(Value::as_i64) {
@@ -206,11 +193,6 @@ impl AgentAdapter for PiAdapter {
             }
 
             let size = Self::path_size(path);
-            let token_stats = if in_tokens > 0 || out_tokens > 0 {
-                Some(make_stats_extended(&model, in_tokens, out_tokens, cache_read, cache_write, reasoning, None))
-            } else {
-                None
-            };
 
             summaries.push(SessionSummary {
                 id: sid.clone(),
@@ -231,7 +213,6 @@ impl AgentAdapter for PiAdapter {
                 is_running: false,
                 is_archived: false,
                 has_transcript: true,
-                token_stats,
             });
         }
 

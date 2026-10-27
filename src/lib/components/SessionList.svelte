@@ -16,10 +16,7 @@
     Search,
     Filter,
     ArrowUpDown,
-    Zap,
     X,
-    Database,
-    Activity,
     Archive,
     RotateCcw,
     Calendar,
@@ -28,7 +25,6 @@
   import {
     formatBytes,
     formatTimeAgo,
-    formatTokens,
     getPlatformBadge,
     toLocalDateString,
   } from "../utils";
@@ -111,33 +107,14 @@
 
   // Dynamic telemetry metrics reactive to all active filter criteria
   let visibleTelemetry = $derived.by(() => {
-    let totalTokens = 0;
-    let totalBytes = 0;
-    let promptTokens = 0;
-    let cacheReadTokens = 0;
     let runningCount = 0;
 
     for (const s of allVisibleSessions) {
-      totalBytes += s.size_bytes || 0;
       if (s.is_running) runningCount++;
-      if (s.token_stats) {
-        totalTokens += s.token_stats.total_tokens || 0;
-        promptTokens += s.token_stats.prompt_tokens || 0;
-        cacheReadTokens += s.token_stats.cache_read_tokens || 0;
-      }
     }
-
-    const totalCachePrompt = promptTokens + cacheReadTokens;
-    const cacheHitRate =
-      totalCachePrompt > 0 && cacheReadTokens > 0
-        ? Math.round((cacheReadTokens / totalCachePrompt) * 1000) / 10
-        : null;
 
     return {
       count: allVisibleSessions.length,
-      totalTokens,
-      totalBytes,
-      cacheHitRate,
       runningCount,
     };
   });
@@ -482,7 +459,6 @@
           >
             <option value="updated_desc">{t("sort_updated")}</option>
             <option value="created_asc">{t("sort_created")}</option>
-            <option value="tokens_desc">{t("sort_tokens")}</option>
             <option value="turns_desc">{t("sort_turns")}</option>
             <option value="size_desc">{t("sort_size")}</option>
           </select>
@@ -659,9 +635,7 @@
     {/if}
   </div>
 
-  <!-- Dynamic Linked Telemetry Bar: Clean Single-Line Status Strip (No wrapping, no overcrowding) -->
-  <div class="px-3.5 py-1.5 bg-slate-100/70 border-b border-slate-200/80 flex items-center justify-between text-xs text-slate-500 shrink-0 select-none whitespace-nowrap">
-    <!-- Left: Count & Running Status -->
+  <div class="px-3.5 py-1.5 bg-slate-100/70 border-b border-slate-200/80 flex items-center text-xs text-slate-500 shrink-0 select-none whitespace-nowrap">
     <div class="flex items-center gap-2 whitespace-nowrap shrink-0">
       <span class="font-semibold text-slate-700 text-[11px] whitespace-nowrap">
         {visibleTelemetry.count} {t("sessions_suffix")}
@@ -672,28 +646,6 @@
           <span>{visibleTelemetry.runningCount} {t("running")}</span>
         </span>
       {/if}
-    </div>
-
-    <!-- Right: Concise Single-Line Telemetry -->
-    <div class="flex items-center gap-2 font-mono text-[11px] whitespace-nowrap shrink-0">
-      <!-- Token Metric -->
-      <span class="flex items-center gap-1 text-amber-800 bg-amber-50/70 px-1.5 py-0.5 rounded border border-amber-200/60 whitespace-nowrap font-medium" title={t("telemetry_tokens_tip")}>
-        <Zap class="h-3 w-3 text-amber-600 shrink-0" />
-        <span>{formatTokens(visibleTelemetry.totalTokens)}</span>
-      </span>
-
-      <!-- Cache Hit Rate Metric -->
-      {#if visibleTelemetry.cacheHitRate !== null}
-        <span class="text-sky-700 bg-sky-50/70 px-1.5 py-0.5 rounded border border-sky-200/60 whitespace-nowrap font-medium" title={t("telemetry_cache_tip")}>
-          {t("cache_hit", { rate: visibleTelemetry.cacheHitRate })}
-        </span>
-      {/if}
-
-      <!-- Total Size Metric -->
-      <span class="flex items-center gap-1 text-slate-600 bg-white/80 px-1.5 py-0.5 rounded border border-slate-200/70 whitespace-nowrap" title={t("telemetry_disk_tip")}>
-        <Database class="h-3 w-3 text-indigo-500 shrink-0" />
-        <span>{formatBytes(visibleTelemetry.totalBytes)}</span>
-      </span>
     </div>
   </div>
 
@@ -801,8 +753,7 @@
               {node.session.title || t("untitled_session")}
             </h3>
 
-            <!-- Bottom Metadata & Telemetry Chips (Concise: cwd hidden) -->
-            <div class="flex items-center justify-between text-[11px] text-slate-500 gap-1.5 pt-0.5">
+            <div class="flex items-center text-[11px] text-slate-500 gap-1.5 pt-0.5">
               <div class="flex items-center gap-1.5 text-[10px] text-slate-400 font-sans shrink-0">
                 <div class="flex items-center gap-0.5" title={t("updated_time")}>
                   <Clock class="h-2.5 w-2.5" />
@@ -814,27 +765,6 @@
                   <span>·</span>
                 {/if}
                 <span>{formatBytes(node.session.size_bytes)}</span>
-              </div>
-
-              <div class="flex items-center gap-1.5 shrink-0 font-mono flex-wrap justify-end">
-                {#if node.session.token_stats && node.session.token_stats.total_tokens > 0}
-                  <span class="inline-flex items-center gap-1 text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/80 font-bold text-[10px]" title={t("total_tokens")}>
-                    <Zap class="h-2.5 w-2.5 text-amber-600 shrink-0" />
-                    <span>{formatTokens(node.session.token_stats.total_tokens)}</span>
-                  </span>
-                  {#if node.session.token_stats.cache_hit_rate !== undefined && node.session.token_stats.cache_hit_rate !== null && node.session.token_stats.cache_hit_rate > 0}
-                    <span class="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded bg-sky-50 text-sky-700 border border-sky-200 font-mono" title={t("cache_hit_rate")}>
-                      <Database class="h-2.5 w-2.5 text-sky-600 shrink-0" />
-                      <span>{node.session.token_stats.cache_hit_rate}%</span>
-                    </span>
-                  {/if}
-                  {#if node.session.token_stats.tokens_per_second !== undefined && node.session.token_stats.tokens_per_second !== null && node.session.token_stats.tokens_per_second > 0}
-                    <span class="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono" title={t("output_speed")}>
-                      <Activity class="h-2.5 w-2.5 text-emerald-600 shrink-0" />
-                      <span>{node.session.token_stats.tokens_per_second.toFixed(0)} t/s</span>
-                    </span>
-                  {/if}
-                {/if}
               </div>
             </div>
           </div>
@@ -896,12 +826,6 @@
                       {sub.flavor || sub.dirname}
                     </span>
                     <div class="flex items-center gap-1.5 flex-wrap justify-end">
-                      {#if sub.token_stats && sub.token_stats.total_tokens > 0}
-                        <span class="inline-flex items-center gap-0.5 text-amber-800 bg-amber-50 px-1 py-0.2 rounded border border-amber-200/60 font-mono">
-                          <Zap class="h-2.5 w-2.5 text-amber-600 shrink-0" />
-                          <span>{formatTokens(sub.token_stats.total_tokens)}</span>
-                        </span>
-                      {/if}
                       <span>{formatBytes(sub.size_bytes)}</span>
                       <span>{formatTimeAgo(sub.updated_at)}</span>
                     </div>
@@ -987,8 +911,7 @@
             {s.title || t("untitled_session")}
           </h3>
 
-          <!-- Metadata (Concise: cwd hidden) -->
-          <div class="flex items-center justify-between text-[11px] text-slate-500 gap-1.5 pt-0.5">
+          <div class="flex items-center text-[11px] text-slate-500 gap-1.5 pt-0.5">
             <div class="flex items-center gap-1.5 text-[10px] text-slate-400 font-sans shrink-0">
               <div class="flex items-center gap-0.5" title={t("updated_time")}>
                 <Clock class="h-2.5 w-2.5" />
@@ -1000,27 +923,6 @@
                 <span>·</span>
               {/if}
               <span>{formatBytes(s.size_bytes)}</span>
-            </div>
-
-            <div class="flex items-center gap-1.5 shrink-0 font-mono flex-wrap justify-end">
-              {#if s.token_stats && s.token_stats.total_tokens > 0}
-                <span class="inline-flex items-center gap-1 text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/80 font-bold text-[10px]" title={t("total_tokens")}>
-                  <Zap class="h-2.5 w-2.5 text-amber-600 shrink-0" />
-                  <span>{formatTokens(s.token_stats.total_tokens)}</span>
-                </span>
-                {#if s.token_stats.cache_hit_rate !== undefined && s.token_stats.cache_hit_rate !== null && s.token_stats.cache_hit_rate > 0}
-                  <span class="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded bg-sky-50 text-sky-700 border border-sky-200 font-mono" title={t("cache_hit_rate")}>
-                    <Database class="h-2.5 w-2.5 text-sky-600 shrink-0" />
-                    <span>{s.token_stats.cache_hit_rate}%</span>
-                  </span>
-                {/if}
-                {#if s.token_stats.tokens_per_second !== undefined && s.token_stats.tokens_per_second !== null && s.token_stats.tokens_per_second > 0}
-                  <span class="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono" title={t("output_speed")}>
-                    <Activity class="h-2.5 w-2.5 text-emerald-600 shrink-0" />
-                    <span>{s.token_stats.tokens_per_second.toFixed(0)} t/s</span>
-                  </span>
-                {/if}
-              {/if}
             </div>
           </div>
         </div>

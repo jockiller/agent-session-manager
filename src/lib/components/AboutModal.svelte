@@ -50,9 +50,12 @@
 
 {#if isOpen}
   <!-- Backdrop -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150 select-none"
-    onclick={onClose}
+    onclick={(e) => {
+      if (e.target === e.currentTarget) onClose();
+    }}
     role="dialog"
     aria-modal="true"
     aria-labelledby="about-title"
@@ -61,7 +64,6 @@
     <!-- Modal Card -->
     <div
       class="bg-white rounded-2xl shadow-xl border border-slate-200/90 w-full max-w-sm overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
-      onclick={(e) => e.stopPropagation()}
       role="document"
     >
       <!-- Top Bar with Close button -->

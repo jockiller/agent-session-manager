@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use crate::adapters::AgentAdapter;
 use crate::models::{ChatMessage, SessionSummary, ToolCallItem};
-use crate::services::token_calc::make_stats;
 
 crate::lazy_regex!(
     CLAUDE_UUID_RE,
@@ -151,10 +150,6 @@ impl AgentAdapter for ClaudeAdapter {
                                 let mut created_at = 0i64;
                                 let mut updated_at = 0i64;
                                 let mut turn_count = 0u32;
-                                let mut prompt_tokens = 0u64;
-                                let mut completion_tokens = 0u64;
-                                let mut cache_read_tokens = 0u64;
-                                let mut cache_write_tokens = 0u64;
 
                                 if let Ok(file) = File::open(&fpath) {
                                     let reader = BufReader::new(file);
@@ -216,12 +211,6 @@ impl AgentAdapter for ClaudeAdapter {
                                                             }
                                                         }
                                                     }
-                                                    if let Some(usage) = msg.get("usage") {
-                                                        prompt_tokens += usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                        completion_tokens += usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                        cache_read_tokens += usage.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                        cache_write_tokens += usage.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                    }
                                                 }
                                             }
                                         }
@@ -237,12 +226,6 @@ impl AgentAdapter for ClaudeAdapter {
 
                                 let total_size: u64 = all_paths.iter().map(|p| Self::path_size(Path::new(p))).sum();
                                 let is_running = live_ids.contains(sid);
-
-                                let token_stats = if prompt_tokens > 0 || completion_tokens > 0 {
-                                    Some(make_stats(&model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens))
-                                } else {
-                                    None
-                                };
 
                                 summaries.push(SessionSummary {
                                     id: sid.to_string(),
@@ -263,7 +246,6 @@ impl AgentAdapter for ClaudeAdapter {
                                     is_running,
                                     is_archived: false,
                                     has_transcript: true,
-                                    token_stats,
                                 });
 
                                 // Discover subagents inside session_dir
@@ -315,7 +297,6 @@ impl AgentAdapter for ClaudeAdapter {
                                             is_running: false,
                                             is_archived: false,
                                             has_transcript: true,
-                                            token_stats: None,
                                         });
                                     }
                                 }

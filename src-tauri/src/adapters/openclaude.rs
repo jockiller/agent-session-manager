@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use crate::adapters::AgentAdapter;
 use crate::models::{ChatMessage, SessionSummary, ToolCallItem};
-use crate::services::token_calc::make_stats;
 
 lazy_regex!(OPENCLAUDE_UUID_RE, r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
@@ -96,10 +95,6 @@ impl AgentAdapter for OpenClaudeAdapter {
                                 let mut created_at = 0i64;
                                 let mut updated_at = 0i64;
                                 let mut turn_count = 0u32;
-                                let mut prompt_tokens = 0u64;
-                                let mut completion_tokens = 0u64;
-                                let mut cache_read_tokens = 0u64;
-                                let mut cache_write_tokens = 0u64;
 
                                 if let Ok(file) = File::open(&fpath) {
                                     let reader = BufReader::new(file);
@@ -162,12 +157,6 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                             }
                                                         }
                                                     }
-                                                    if let Some(usage) = msg.get("usage") {
-                                                        prompt_tokens += usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                        completion_tokens += usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                        cache_read_tokens += usage.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                        cache_write_tokens += usage.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                    }
                                                 }
                                             }
                                         }
@@ -182,12 +171,6 @@ impl AgentAdapter for OpenClaudeAdapter {
                                 }
 
                                 let total_size: u64 = all_paths.iter().map(|p| Self::path_size(Path::new(p))).sum();
-
-                                let token_stats = if prompt_tokens > 0 || completion_tokens > 0 {
-                                    Some(make_stats(&model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens))
-                                } else {
-                                    None
-                                };
 
                                 summaries.push(SessionSummary {
                                     id: sid.to_string(),
@@ -208,7 +191,6 @@ impl AgentAdapter for OpenClaudeAdapter {
                                     is_running: false,
                                     is_archived: false,
                                     has_transcript: true,
-                                    token_stats,
                                 });
 
                                 // Discover subagents inside session_dir
@@ -231,10 +213,6 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                     let mut sub_created = 0i64;
                                                     let mut sub_updated = 0i64;
                                                     let mut sub_turns = 0u32;
-                                                    let mut s_in = 0u64;
-                                                    let mut s_out = 0u64;
-                                                    let mut s_cread = 0u64;
-                                                    let mut s_cwrite = 0u64;
 
                                                     if let Ok(sf) = File::open(&sub_path) {
                                                         let s_reader = BufReader::new(sf);
@@ -271,12 +249,6 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                                                 sub_model = m.to_string();
                                                                             }
                                                                         }
-                                                                        if let Some(usage) = msg.get("usage") {
-                                                                            s_in += usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                                            s_out += usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                                            s_cread += usage.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                                            s_cwrite += usage.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -293,11 +265,6 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                     }
 
                                                     let sub_size = Self::path_size(&sub_path);
-                                                    let sub_stats = if s_in > 0 || s_out > 0 {
-                                                        Some(make_stats(&sub_model, s_in, s_out, s_cread, s_cwrite))
-                                                    } else {
-                                                        None
-                                                    };
 
                                                     summaries.push(SessionSummary {
                                                         id: sub_id.clone(),
@@ -318,7 +285,6 @@ impl AgentAdapter for OpenClaudeAdapter {
                                                         is_running: false,
                                                         is_archived: false,
                                                         has_transcript: true,
-                                                        token_stats: sub_stats,
                                                     });
                                                 }
                                             }

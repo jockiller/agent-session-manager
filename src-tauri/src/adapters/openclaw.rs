@@ -127,7 +127,6 @@ impl AgentAdapter for OpenClawAdapter {
                 is_running: false,
                 is_archived: false,
                 has_transcript: true,
-                token_stats: None,
             });
         }
 

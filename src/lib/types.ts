@@ -17,7 +17,6 @@ export interface SessionSummary {
   is_running: boolean;
   is_archived: boolean;
   has_transcript: boolean;
-  token_stats?: TokenStats | null;
 }
 
 export interface SessionTreeNode {
@@ -40,21 +39,9 @@ export interface ChatMessage {
   tool_calls: ToolCallItem[];
 }
 
-export interface TokenStats {
-  prompt_tokens: number;
-  completion_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  reasoning_tokens: number;
-  total_tokens: number;
-  cache_hit_rate?: number | null;
-  tokens_per_second?: number | null;
-}
-
 export interface PlatformStat {
   count: number;
   bytes: number;
-  tokens: number;
 }
 
 export interface CleanupPlan {
@@ -83,11 +70,5 @@ export interface GlobalStats {
   running_count: number;
   archived_count: number;
   orphan_count: number;
-  total_prompt_tokens: number;
-  total_completion_tokens: number;
-  total_cache_read_tokens: number;
-  total_cache_write_tokens: number;
-  total_tokens: number;
-  overall_cache_hit_rate?: number | null;
   platform_distribution: Record<string, PlatformStat>;
 }

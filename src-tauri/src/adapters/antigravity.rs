@@ -8,7 +8,6 @@ use serde_json::Value;
 
 use crate::adapters::AgentAdapter;
 use crate::models::{ChatMessage, SessionSummary, ToolCallItem};
-use crate::services::token_calc::make_stats;
 
 crate::lazy_regex!(AGY_UUID_RE, r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 crate::lazy_regex!(AGY_REQ_RE, r"(?s)<USER_REQUEST>(.*?)</USER_REQUEST>");
@@ -552,11 +551,7 @@ impl AgentAdapter for AntigravityAdapter {
                     }
                 }
 
-                // Parse transcript.jsonl for tokens, fallback title, and timestamps
-                let mut prompt_tokens = 0u64;
-                let mut completion_tokens = 0u64;
-                let mut cache_read_tokens = 0u64;
-
+                // Parse transcript.jsonl for fallback title and timestamps
                 if has_transcript {
                     if let Ok(file) = File::open(&transcript_file) {
                         let reader = BufReader::new(file);
@@ -594,10 +589,6 @@ impl AgentAdapter for AntigravityAdapter {
                                         }
                                     }
                                 } else if mtype == "PLANNER_RESPONSE" {
-                                    prompt_tokens += v.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                    completion_tokens += v.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                    cache_read_tokens += v.get("cache_read_tokens").and_then(Value::as_u64).unwrap_or(0);
-
                                     if let Some(c_at) = v.get("created_at").and_then(Value::as_str) {
                                         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(c_at) {
                                             updated_at = dt.timestamp_millis();
@@ -631,11 +622,6 @@ impl AgentAdapter for AntigravityAdapter {
                 };
 
                 let is_running = presence_running || status_running;
-                let token_stats = if prompt_tokens > 0 || completion_tokens > 0 {
-                    Some(make_stats("gemini-2.5-pro", prompt_tokens, completion_tokens, cache_read_tokens, 0))
-                } else {
-                    None
-                };
 
                 summaries.push(SessionSummary {
                     id: sid,
@@ -656,7 +642,6 @@ impl AgentAdapter for AntigravityAdapter {
                     is_running,
                     is_archived: false,
                     has_transcript,
-                    token_stats,
                 });
             }
         }

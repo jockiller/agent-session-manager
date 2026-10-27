@@ -312,13 +312,7 @@ impl AgentAdapter for OpenCodeAdapter {
                     COALESCE(s.directory, ''), 
                     s.parent_id, 
                     COALESCE(s.time_created, 0), 
-                    COALESCE(s.time_updated, s.time_created, 0),
-                    COALESCE(s.model, ''),
-                    COALESCE(s.tokens_input, 0),
-                    COALESCE(s.tokens_output, 0),
-                    COALESCE(s.tokens_reasoning, 0),
-                    COALESCE(s.tokens_cache_read, 0),
-                    COALESCE(s.tokens_cache_write, 0)
+                    COALESCE(s.time_updated, s.time_created, 0)
                 FROM session_v2 s
                 ORDER BY COALESCE(s.time_updated, s.time_created, 0) DESC
                 "#,
@@ -340,12 +334,6 @@ impl AgentAdapter for OpenCodeAdapter {
                 let parent_id: Option<String> = row.get(3)?;
                 let time_created: i64 = row.get(4)?;
                 let time_updated: i64 = row.get(5)?;
-                let model: String = row.get(6)?;
-                let tokens_input: i64 = row.get(7)?;
-                let tokens_output: i64 = row.get(8)?;
-                let tokens_reasoning: i64 = row.get(9)?;
-                let tokens_cache_read: i64 = row.get(10)?;
-                let tokens_cache_write: i64 = row.get(11)?;
                 Ok((
                     id,
                     title,
@@ -353,12 +341,6 @@ impl AgentAdapter for OpenCodeAdapter {
                     parent_id,
                     time_created,
                     time_updated,
-                    model,
-                    tokens_input,
-                    tokens_output,
-                    tokens_reasoning,
-                    tokens_cache_read,
-                    tokens_cache_write,
                 ))
             }) {
                 Ok(r) => r,
@@ -373,12 +355,6 @@ impl AgentAdapter for OpenCodeAdapter {
                     parent_id,
                     time_created,
                     time_updated,
-                    model,
-                    tokens_input,
-                    tokens_output,
-                    tokens_reasoning,
-                    tokens_cache_read,
-                    tokens_cache_write,
                 ) = r;
 
                 let created_at = to_millis(time_created);
@@ -392,25 +368,6 @@ impl AgentAdapter for OpenCodeAdapter {
                 let stat = msg_stats.get(&id);
                 let turn_count = stat.map(|s| s.user_turns).unwrap_or(0).max(1);
                 let size_bytes = stat.map(|s| s.data_bytes).unwrap_or(0).max(4096);
-
-                let token_stats = if tokens_input > 0
-                    || tokens_output > 0
-                    || tokens_cache_read > 0
-                    || tokens_cache_write > 0
-                    || tokens_reasoning > 0
-                {
-                    Some(crate::services::token_calc::make_stats_extended(
-                        &model,
-                        tokens_input.max(0) as u64,
-                        tokens_output.max(0) as u64,
-                        tokens_cache_read.max(0) as u64,
-                        tokens_cache_write.max(0) as u64,
-                        tokens_reasoning.max(0) as u64,
-                        None,
-                    ))
-                } else {
-                    None
-                };
 
                 summaries.push(SessionSummary {
                     id: id.clone(),
@@ -431,7 +388,6 @@ impl AgentAdapter for OpenCodeAdapter {
                     is_running: running.contains(&id),
                     is_archived: archived.contains(&id),
                     has_transcript: true,
-                    token_stats,
                 });
             }
 
@@ -501,7 +457,6 @@ impl AgentAdapter for OpenCodeAdapter {
                 is_running: false,
                 is_archived: false,
                 has_transcript: true,
-                token_stats: None,
             });
         }
 
@@ -968,13 +923,6 @@ mod tests {
         assert_eq!(s.title, "测试 OpenCode v2 会话");
         assert_eq!(s.first_prompt, "帮我优化这段代码");
         assert_eq!(s.turn_count, 1);
-        assert!(s.token_stats.is_some());
-        let t = s.token_stats.as_ref().unwrap();
-        assert_eq!(t.prompt_tokens, 1000);
-        assert_eq!(t.completion_tokens, 200);
-        assert_eq!(t.cache_read_tokens, 400);
-        assert_eq!(t.cache_write_tokens, 100);
-        assert_eq!(t.reasoning_tokens, 50);
         assert!(!s.is_running);
         assert!(!s.is_archived);
 

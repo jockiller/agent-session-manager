@@ -5,12 +5,11 @@
     ShieldCheck,
     AlertTriangle,
     Database,
-    Zap,
     RefreshCw,
     AlertCircle,
   } from "@lucide/svelte";
   import type { SessionSummary } from "../types";
-  import { formatBytes, formatTokens, getPlatformBadge } from "../utils";
+  import { formatBytes, getPlatformBadge } from "../utils";
   import { t } from "../i18n";
 
   let {
@@ -32,10 +31,6 @@
   // Derived statistics of selected sessions
   let totalBytes = $derived(
     selectedSessions.reduce((acc, s) => acc + (s.size_bytes || 0), 0)
-  );
-
-  let totalTokens = $derived(
-    selectedSessions.reduce((acc, s) => acc + (s.token_stats?.total_tokens || 0), 0)
   );
 
   let runningSessions = $derived(
@@ -75,16 +70,17 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if isOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150 select-none"
     onclick={handleBackdropClick}
     role="dialog"
     aria-modal="true"
     aria-labelledby="modal-title"
+    tabindex="-1"
   >
     <div
       class="bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
-      onclick={(e) => e.stopPropagation()}
     >
       <!-- Modal Header -->
       <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/50">
@@ -123,8 +119,7 @@
             </p>
           </div>
         {:else}
-          <!-- Key Statistics 3-column Grid -->
-          <div class="grid grid-cols-3 gap-2.5">
+          <div class="grid grid-cols-2 gap-2.5">
             <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col">
               <span class="text-[10px] text-slate-400 font-medium">{t("selected_sessions_stat")}</span>
               <span class="text-base font-bold text-slate-900 mt-1 font-mono">
@@ -139,16 +134,6 @@
               </div>
               <span class="text-base font-bold text-rose-700 mt-1 font-mono">
                 {formatBytes(effectiveBytes)}
-              </span>
-            </div>
-
-            <div class="p-3 rounded-xl bg-amber-50/70 border border-amber-200/70 flex flex-col">
-              <div class="flex items-center gap-1 text-[10px] text-amber-700 font-medium">
-                <Zap class="h-3 w-3 shrink-0" />
-                <span>{t("tokens_consumed")}</span>
-              </div>
-              <span class="text-base font-bold text-amber-900 mt-1 font-mono">
-                {formatTokens(totalTokens)}
               </span>
             </div>
           </div>

@@ -8,7 +8,6 @@ use serde_json::Value;
 
 use crate::adapters::AgentAdapter;
 use crate::models::{ChatMessage, SessionSummary};
-use crate::services::token_calc::make_stats_extended;
 
 pub struct CodeBuddyAdapter;
 
@@ -95,10 +94,6 @@ impl AgentAdapter for CodeBuddyAdapter {
                 let mut created_at = mtime_sec;
                 let mut updated_at = mtime_sec;
                 let mut turn_count = 0u32;
-                let mut prompt_tokens = 0u64;
-                let mut completion_tokens = 0u64;
-                let mut cache_read_tokens = 0u64;
-                let mut reasoning_tokens = 0u64;
 
                 if let Ok(file) = File::open(path) {
                     let reader = BufReader::new(file);
@@ -159,17 +154,6 @@ impl AgentAdapter for CodeBuddyAdapter {
                                     }
                                 }
                             }
-
-                            // Extract tokens if available in usage
-                            let usage_node = val.get("usage").or_else(|| {
-                                val.get("providerData").and_then(|p| p.get("usage"))
-                            });
-                            if let Some(u) = usage_node {
-                                prompt_tokens += u.get("input").or_else(|| u.get("promptTokens")).and_then(Value::as_u64).unwrap_or(0);
-                                completion_tokens += u.get("output").or_else(|| u.get("completionTokens")).and_then(Value::as_u64).unwrap_or(0);
-                                cache_read_tokens += u.get("cacheRead").or_else(|| u.get("cachedInputTokens")).and_then(Value::as_u64).unwrap_or(0);
-                                reasoning_tokens += u.get("reasoning").or_else(|| u.get("reasoningTokens")).and_then(Value::as_u64).unwrap_or(0);
-                            }
                         }
                     }
                 }
@@ -181,12 +165,6 @@ impl AgentAdapter for CodeBuddyAdapter {
                 if title.is_empty() {
                     title = format!("CodeBuddy 会话 {}", &raw_id[..raw_id.len().min(8)]);
                 }
-
-                let token_stats = if prompt_tokens + completion_tokens > 0 {
-                    Some(make_stats_extended("codebuddy", prompt_tokens, completion_tokens, cache_read_tokens, 0, reasoning_tokens, None))
-                } else {
-                    None
-                };
 
                 let main_path_str = path.to_string_lossy().to_string();
                 summaries.push(SessionSummary {
@@ -208,7 +186,6 @@ impl AgentAdapter for CodeBuddyAdapter {
                     is_running: false,
                     is_archived: false,
                     has_transcript: true,
-                    token_stats,
                 });
             }
         }

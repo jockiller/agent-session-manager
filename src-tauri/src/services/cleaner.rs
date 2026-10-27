@@ -289,7 +289,6 @@ mod tests {
             is_running: running,
             is_archived: false,
             has_transcript: true,
-            token_stats: None,
         }
     }
 

@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use crate::adapters::AgentAdapter;
 use crate::models::{ChatMessage, SessionSummary, ToolCallItem};
-use crate::services::token_calc::make_stats_extended;
 
 pub struct QwenAdapter;
 
@@ -77,9 +76,6 @@ impl AgentAdapter for QwenAdapter {
             let mut created_at = 0i64;
             let mut updated_at = 0i64;
             let mut turn_count = 0u32;
-            let mut prompt_tokens = 0u64;
-            let mut completion_tokens = 0u64;
-            let mut cache_read_tokens = 0u64;
 
             if let Ok(file) = File::open(path) {
                 let reader = BufReader::new(file);
@@ -122,15 +118,6 @@ impl AgentAdapter for QwenAdapter {
                                     }
                                 }
                             }
-                        }
-
-                        if let Some(usage) = val.get("usageMetadata") {
-                            let p = usage.get("promptTokenCount").and_then(Value::as_u64).unwrap_or(0);
-                            let c = usage.get("candidatesTokenCount").and_then(Value::as_u64).unwrap_or(0);
-                            let cr = usage.get("cachedContentTokenCount").and_then(Value::as_u64).unwrap_or(0);
-                            if p > prompt_tokens { prompt_tokens = p; }
-                            completion_tokens += c;
-                            if cr > cache_read_tokens { cache_read_tokens = cr; }
                         }
 
                         let role = val.get("role").or_else(|| val.get("type")).and_then(Value::as_str).unwrap_or("");
@@ -177,11 +164,6 @@ impl AgentAdapter for QwenAdapter {
             }
 
             let size = Self::path_size(path);
-            let token_stats = if prompt_tokens > 0 || completion_tokens > 0 {
-                Some(make_stats_extended(&model, prompt_tokens, completion_tokens, cache_read_tokens, 0, 0, None))
-            } else {
-                None
-            };
 
             summaries.push(SessionSummary {
                 id: sid.clone(),
@@ -202,7 +184,6 @@ impl AgentAdapter for QwenAdapter {
                 is_running: false,
                 is_archived: false,
                 has_transcript: true,
-                token_stats,
             });
         }
 

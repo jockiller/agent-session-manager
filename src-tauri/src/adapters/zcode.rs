@@ -1,6 +1,5 @@
 use crate::adapters::{to_millis, AgentAdapter};
 use crate::models::{ChatMessage, SessionSummary, ToolCallItem};
-use crate::services::token_calc::make_stats_extended;
 use chrono::DateTime;
 use rusqlite::{Connection, OpenFlags};
 use std::collections::{HashMap, HashSet};
@@ -130,12 +129,6 @@ impl AgentAdapter for ZCodeAdapter {
                         s.parent_id, 
                         s.time_created, 
                         s.time_updated,
-                        COALESCE(SUM(m.input_tokens), 0) as in_tok,
-                        COALESCE(SUM(m.output_tokens), 0) as out_tok,
-                        COALESCE(SUM(m.reasoning_tokens), 0) as reason_tok,
-                        COALESCE(SUM(m.cache_creation_input_tokens), 0) as cache_w_tok,
-                        COALESCE(SUM(m.cache_read_input_tokens), 0) as cache_r_tok,
-                        COALESCE(SUM(m.duration_ms), 0) as dur_ms,
                         COALESCE(
                             NULLIF(MAX(m.model_id), ''), 
                             (SELECT json_extract(msg.data, '$.modelID') FROM message msg WHERE msg.session_id = s.id AND json_extract(msg.data, '$.modelID') IS NOT NULL ORDER BY msg.time_created DESC LIMIT 1),
@@ -166,15 +159,9 @@ impl AgentAdapter for ZCodeAdapter {
                             parent_id: row.get(3)?,
                             time_created: row.get(4)?,
                             time_updated: row.get(5)?,
-                            in_tok: row.get(6)?,
-                            out_tok: row.get(7)?,
-                            reason_tok: row.get(8)?,
-                            cache_w_tok: row.get(9)?,
-                            cache_r_tok: row.get(10)?,
-                            dur_ms: row.get(11)?,
-                            model_id: row.get(12)?,
-                            msg_count: row.get(13)?,
-                            first_user_text: row.get(14)?,
+                            model_id: row.get(6)?,
+                            msg_count: row.get(7)?,
+                            first_user_text: row.get(8)?,
                         })
                     });
 
@@ -211,7 +198,7 @@ impl AgentAdapter for ZCodeAdapter {
                 })
                 .unwrap_or_default();
 
-            let (title, cwd, created_at, updated_at, flavor, is_subagent, parent_id, turn_count, token_stats) = match (task_opt, cli_opt) {
+            let (title, cwd, created_at, updated_at, flavor, is_subagent, parent_id, turn_count) = match (task_opt, cli_opt) {
                 (Some(t), Some(c)) => {
                     let title = if !t.title.trim().is_empty() {
                         t.title.trim().to_string()
@@ -243,17 +230,7 @@ impl AgentAdapter for ZCodeAdapter {
                     let is_sub = c.parent_id.as_ref().map_or(false, |p| !p.trim().is_empty());
                     let p_id = if is_sub { c.parent_id.clone() } else { None };
 
-                    let stats = make_stats_extended(
-                        &flavor,
-                        c.in_tok.max(0) as u64,
-                        c.out_tok.max(0) as u64,
-                        c.cache_r_tok.max(0) as u64,
-                        c.cache_w_tok.max(0) as u64,
-                        c.reason_tok.max(0) as u64,
-                        if c.dur_ms > 0 { Some(c.dur_ms as u64) } else { None },
-                    );
-
-                    (title, cwd, created_at, updated_at, flavor, is_sub, p_id, c.msg_count.max(1) as u32, Some(stats))
+                    (title, cwd, created_at, updated_at, flavor, is_sub, p_id, c.msg_count.max(1) as u32)
                 }
                 (Some(t), None) => {
                     let title = if !t.title.trim().is_empty() {
@@ -272,7 +249,7 @@ impl AgentAdapter for ZCodeAdapter {
                         .or_else(|| t.provider.as_ref().filter(|p| !p.trim().is_empty()).cloned())
                         .unwrap_or_else(|| "zcode".to_string());
 
-                    (title, cwd, created_at, updated_at, flavor, false, None, 1, None)
+                    (title, cwd, created_at, updated_at, flavor, false, None, 1)
                 }
                 (None, Some(c)) => {
                     let title = if !c.title.trim().is_empty() {
@@ -294,17 +271,7 @@ impl AgentAdapter for ZCodeAdapter {
                     let is_sub = c.parent_id.as_ref().map_or(false, |p| !p.trim().is_empty());
                     let p_id = if is_sub { c.parent_id.clone() } else { None };
 
-                    let stats = make_stats_extended(
-                        &flavor,
-                        c.in_tok.max(0) as u64,
-                        c.out_tok.max(0) as u64,
-                        c.cache_r_tok.max(0) as u64,
-                        c.cache_w_tok.max(0) as u64,
-                        c.reason_tok.max(0) as u64,
-                        if c.dur_ms > 0 { Some(c.dur_ms as u64) } else { None },
-                    );
-
-                    (title, cwd, created_at, updated_at, flavor, is_sub, p_id, c.msg_count.max(1) as u32, Some(stats))
+                    (title, cwd, created_at, updated_at, flavor, is_sub, p_id, c.msg_count.max(1) as u32)
                 }
                 (None, None) => continue,
             };
@@ -384,7 +351,6 @@ impl AgentAdapter for ZCodeAdapter {
                 is_running: false,
                 is_archived: false,
                 has_transcript: true,
-                token_stats,
             });
         }
 
@@ -673,12 +639,6 @@ struct CliSessionRow {
     parent_id: Option<String>,
     time_created: i64,
     time_updated: i64,
-    in_tok: i64,
-    out_tok: i64,
-    reason_tok: i64,
-    cache_w_tok: i64,
-    cache_r_tok: i64,
-    dur_ms: i64,
     model_id: String,
     msg_count: i64,
     first_user_text: Option<String>,

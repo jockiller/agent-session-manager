@@ -240,7 +240,6 @@ impl AgentAdapter for CursorAdapter {
                         is_running: false,
                         is_archived: false,
                         has_transcript: true,
-                        token_stats: None,
                     });
                 }
             }
@@ -332,7 +331,6 @@ impl AgentAdapter for CursorAdapter {
                                     is_running: false,
                                     is_archived: false,
                                     has_transcript: true,
-                                    token_stats: None,
                                 });
                             }
                         }
@@ -388,7 +386,6 @@ impl AgentAdapter for CursorAdapter {
                                     is_running: false,
                                     is_archived: false,
                                     has_transcript: true,
-                                    token_stats: None,
                                 });
                             }
                         }

@@ -24,19 +24,6 @@ pub struct SessionSummary {
     #[serde(default)]
     pub is_archived: bool,
     pub has_transcript: bool,
-    pub token_stats: Option<TokenStats>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TokenStats {
-    pub prompt_tokens: u64,
-    pub completion_tokens: u64,
-    pub cache_read_tokens: u64,
-    pub cache_write_tokens: u64,
-    pub reasoning_tokens: u64,
-    pub total_tokens: u64,
-    pub cache_hit_rate: Option<f64>,
-    pub tokens_per_second: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,12 +72,6 @@ pub struct GlobalStats {
     pub running_count: usize,
     pub archived_count: usize,
     pub orphan_count: usize,
-    pub total_prompt_tokens: u64,
-    pub total_completion_tokens: u64,
-    pub total_cache_read_tokens: u64,
-    pub total_cache_write_tokens: u64,
-    pub total_tokens: u64,
-    pub overall_cache_hit_rate: Option<f64>,
     pub platform_distribution: std::collections::HashMap<String, PlatformStat>,
 }
 
@@ -98,5 +79,4 @@ pub struct GlobalStats {
 pub struct PlatformStat {
     pub count: usize,
     pub bytes: u64,
-    pub tokens: u64,
 }

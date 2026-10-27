@@ -5,7 +5,6 @@
     Trash2,
     Copy,
     Check,
-    Coins,
     Clock,
     Wrench,
     Sparkles,
@@ -21,18 +20,14 @@
     CornerDownRight,
     ArrowLeft,
     Play,
-    Zap,
     Database,
-    Cpu,
     X,
-    Activity,
     MessageSquare,
     LayoutDashboard,
-    BarChart2,
     FileCode,
   } from "@lucide/svelte";
   import type { ChatMessage, SessionSummary } from "../types";
-  import { formatBytes, formatTime, formatTokens, formatNumber, getPlatformBadge } from "../utils";
+  import { formatBytes, formatTime, getPlatformBadge } from "../utils";
   import { invoke } from "@tauri-apps/api/core";
   import { t } from "../i18n";
 
@@ -67,38 +62,6 @@
   let expandedTools = $state<Record<number, boolean>>({});
   let isConfirmingDelete = $state(false);
   let activeTab = $state<"chat" | "overview">("chat");
-
-  let tokenBreakdown = $derived.by(() => {
-    if (!session || !session.token_stats) return null;
-    const p = session.token_stats.prompt_tokens || 0;
-    const c = session.token_stats.completion_tokens || 0;
-    const cr = session.token_stats.cache_read_tokens || 0;
-    const sum = p + c + cr;
-    if (sum === 0) return null;
-
-    const formatPct = (val: number) => {
-      if (val <= 0) return "0%";
-      const pct = (val / sum) * 100;
-      if (pct < 0.1) return "<0.1%";
-      if (pct < 1) return `${pct.toFixed(1)}%`;
-      return `${Math.round(pct)}%`;
-    };
-
-    const getBarWidth = (val: number) => {
-      if (val <= 0) return 0;
-      const rawPct = (val / sum) * 100;
-      return Math.max(rawPct, 1.2);
-    };
-
-    return {
-      promptText: formatPct(p),
-      completionText: formatPct(c),
-      cacheText: formatPct(cr),
-      promptBarWidth: getBarWidth(p),
-      completionBarWidth: getBarWidth(c),
-      cacheBarWidth: getBarWidth(cr),
-    };
-  });
 
   function copyMainPath() {
     if (!session || !session.main_path) return;
@@ -280,13 +243,6 @@
     md += `- **${t("md_session_id")}**: \`${session.id}\`\n`;
     md += `- **${t("md_workspace")}**: \`${session.cwd || session.dirname || ""}\`\n`;
     md += `- **${t("updated_time")}**: ${formatTime(session.updated_at)}\n`;
-    if (session.token_stats) {
-      md += `- **Tokens**: ${t("md_tokens_summary", {
-        total: formatTokens(session.token_stats.total_tokens),
-        prompt: formatTokens(session.token_stats.prompt_tokens),
-        comp: formatTokens(session.token_stats.completion_tokens)
-      })}\n`;
-    }
     md += `\n---\n\n`;
 
     for (let i = 0; i < messages.length; i++) {
@@ -495,9 +451,9 @@
         </h2>
       </div>
 
-      <!-- Bottom: Unified Info & Telemetry Card (A single soft rounded card container instead of stripes) -->
-      <div class="bg-slate-50/80 rounded-xl p-2.5 border border-slate-200/70 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-        <!-- Left Metadata: Session ID & CWD & Updated -->
+      <!-- Bottom: Unified Info Card (A single soft rounded card container instead of stripes) -->
+      <div class="bg-slate-50/80 rounded-xl p-2.5 border border-slate-200/70 flex items-center gap-2 text-xs text-slate-600">
+        <!-- Metadata: Session ID & CWD & Updated -->
         <div class="flex items-center gap-2.5 text-[11px] font-mono min-w-0 flex-1 overflow-hidden">
           <!-- Session ID with Copy -->
           <button
@@ -530,38 +486,6 @@
             <span>{formatTime(session.updated_at)}</span>
           </div>
         </div>
-
-        <!-- Right Telemetry: Pure Token Stats (No Price) -->
-        {#if session.token_stats && session.token_stats.total_tokens > 0}
-          <div class="flex items-center gap-2 text-[11px] font-mono shrink-0">
-            <!-- Total Tokens -->
-            <span class="inline-flex items-center gap-1 text-amber-900 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/70" title="Total Tokens">
-              <Zap class="h-3 w-3 text-amber-600 shrink-0" />
-              <span>{formatTokens(session.token_stats.total_tokens)}</span>
-            </span>
-
-            <!-- In / Out -->
-            <span class="text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200/70 text-[10px]">
-              {t("in_out_tokens", { in: formatTokens(session.token_stats.prompt_tokens), out: formatTokens(session.token_stats.completion_tokens) })}
-            </span>
-
-            <!-- Cache Hit Rate -->
-            {#if session.token_stats.cache_hit_rate !== undefined && session.token_stats.cache_hit_rate !== null && session.token_stats.cache_hit_rate > 0}
-              <span class="inline-flex items-center gap-0.5 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200/70 text-[10px] font-semibold">
-                <Database class="h-3 w-3 text-sky-600 shrink-0" />
-                <span>{t("cache_rate_short", { rate: session.token_stats.cache_hit_rate })}</span>
-              </span>
-            {/if}
-
-            <!-- Speed tok/s -->
-            {#if session.token_stats.tokens_per_second !== undefined && session.token_stats.tokens_per_second !== null && session.token_stats.tokens_per_second > 0}
-              <span class="inline-flex items-center gap-0.5 text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/70 text-[10px] font-semibold" title="Token Speed">
-                <Activity class="h-3 w-3 text-emerald-600 shrink-0" />
-                <span>{session.token_stats.tokens_per_second.toFixed(0)} t/s</span>
-              </span>
-            {/if}
-          </div>
-        {/if}
       </div>
 
       <!-- Child Subagents List (If any) -->
@@ -936,153 +860,7 @@
             </div>
           </div>
 
-          <!-- Card 3: Token 深度分布与模型表现 (Token Stats) -->
-          <div class="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs space-y-3">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div class="h-6 w-6 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-                  <Coins class="h-3.5 w-3.5" />
-                </div>
-                <h3 class="text-xs font-bold text-slate-800">{t("token_metrics")}</h3>
-              </div>
-              {#if session.token_stats}
-                <span class="text-xs font-mono font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200/60">
-                  {t("total_tokens_label")} {formatTokens(session.token_stats.total_tokens)}
-                </span>
-              {/if}
-            </div>
-
-            {#if session.token_stats && (session.token_stats.total_tokens || 0) > 0}
-              <!-- Proportion bar -->
-              {#if tokenBreakdown}
-                <div class="space-y-1.5 pt-1">
-                  <div class="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
-                    <div
-                      class="bg-amber-400 h-full transition-all duration-300"
-                      style="width: {tokenBreakdown.promptBarWidth}%"
-                      title="Prompt: {tokenBreakdown.promptText}"
-                    ></div>
-                    <div
-                      class="bg-indigo-500 h-full transition-all duration-300"
-                      style="width: {tokenBreakdown.completionBarWidth}%"
-                      title="Completion: {tokenBreakdown.completionText}"
-                    ></div>
-                    <div
-                      class="bg-sky-400 h-full transition-all duration-300"
-                      style="width: {tokenBreakdown.cacheBarWidth}%"
-                      title="Cache: {tokenBreakdown.cacheText}"
-                    ></div>
-                  </div>
-                  <div class="flex items-center justify-between text-[10px] text-slate-500 font-medium px-1 flex-wrap gap-2">
-                    <div class="flex items-center gap-1.5 whitespace-nowrap">
-                      <span class="h-2 w-2 rounded-full bg-amber-400 shrink-0"></span>
-                      <span>{t("prompt_input")} ({tokenBreakdown.promptText})</span>
-                    </div>
-                    <div class="flex items-center gap-1.5 whitespace-nowrap">
-                      <span class="h-2 w-2 rounded-full bg-indigo-500 shrink-0"></span>
-                      <span>{t("completion_reply")} ({tokenBreakdown.completionText})</span>
-                    </div>
-                    <div class="flex items-center gap-1.5 whitespace-nowrap">
-                      <span class="h-2 w-2 rounded-full bg-sky-400 shrink-0"></span>
-                      <span>{t("cache_read")} ({tokenBreakdown.cacheText})</span>
-                    </div>
-                  </div>
-                </div>
-              {/if}
-
-              <!-- Token details grid (Optimized numbers & zero wrapping) -->
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2">
-                <!-- Card 1: Prompt -->
-                <div class="p-2.5 rounded-xl border border-amber-200/80 bg-amber-50/40 flex flex-col justify-between min-w-0">
-                  <div class="flex items-center justify-between gap-1 text-[11px] text-slate-600 font-medium whitespace-nowrap min-w-0">
-                    <span class="truncate">{t("prompt_input")}</span>
-                    {#if tokenBreakdown}
-                      <span class="text-[10px] text-amber-700 font-mono font-semibold shrink-0">{tokenBreakdown.promptText}</span>
-                    {/if}
-                  </div>
-                  <div class="mt-2 min-w-0">
-                    <div class="text-base sm:text-lg font-bold text-amber-950 font-mono tracking-tight leading-none truncate">
-                      {formatTokens(session.token_stats.prompt_tokens || 0)}
-                    </div>
-                    <div class="text-[10px] text-slate-400 font-mono tracking-tight mt-1 truncate select-all" title="{formatNumber(session.token_stats.prompt_tokens || 0)} tokens">
-                      {formatNumber(session.token_stats.prompt_tokens || 0)}
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Card 2: Completion -->
-                <div class="p-2.5 rounded-xl border border-indigo-200/80 bg-indigo-50/40 flex flex-col justify-between min-w-0">
-                  <div class="flex items-center justify-between gap-1 text-[11px] text-slate-600 font-medium whitespace-nowrap min-w-0">
-                    <span class="truncate">{t("completion_reply")}</span>
-                    {#if tokenBreakdown}
-                      <span class="text-[10px] text-indigo-700 font-mono font-semibold shrink-0">{tokenBreakdown.completionText}</span>
-                    {/if}
-                  </div>
-                  <div class="mt-2 min-w-0">
-                    <div class="text-base sm:text-lg font-bold text-indigo-950 font-mono tracking-tight leading-none truncate">
-                      {formatTokens(session.token_stats.completion_tokens || 0)}
-                    </div>
-                    <div class="text-[10px] text-slate-400 font-mono tracking-tight mt-1 truncate select-all" title="{formatNumber(session.token_stats.completion_tokens || 0)} tokens">
-                      {formatNumber(session.token_stats.completion_tokens || 0)}
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Card 3: Cache Read -->
-                <div class="p-2.5 rounded-xl border border-sky-200/80 bg-sky-50/40 flex flex-col justify-between min-w-0">
-                  <div class="flex items-center justify-between gap-1 text-[11px] text-slate-600 font-medium whitespace-nowrap min-w-0">
-                    <span class="truncate">{t("cache_read")}</span>
-                    {#if tokenBreakdown}
-                      <span class="text-[10px] text-sky-700 font-mono font-semibold shrink-0">{tokenBreakdown.cacheText}</span>
-                    {/if}
-                  </div>
-                  <div class="mt-2 min-w-0">
-                    <div class="text-base sm:text-lg font-bold text-sky-950 font-mono tracking-tight leading-none truncate">
-                      {formatTokens(session.token_stats.cache_read_tokens || 0)}
-                    </div>
-                    <div class="text-[10px] text-slate-400 font-mono tracking-tight mt-1 truncate select-all" title="{formatNumber(session.token_stats.cache_read_tokens || 0)} tokens">
-                      {formatNumber(session.token_stats.cache_read_tokens || 0)}
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Card 4: Reasoning / CoT -->
-                <div class="p-2.5 rounded-xl border border-purple-200/80 bg-purple-50/40 flex flex-col justify-between min-w-0">
-                  <div class="flex items-center justify-between gap-1 text-[11px] text-slate-600 font-medium whitespace-nowrap min-w-0">
-                    <span class="truncate">{t("reasoning_thinking")}</span>
-                    {#if session.token_stats.reasoning_tokens && session.token_stats.total_tokens}
-                      <span class="text-[10px] text-purple-700 font-mono font-semibold shrink-0">
-                        {((session.token_stats.reasoning_tokens / session.token_stats.total_tokens) * 100).toFixed(1)}%
-                      </span>
-                    {/if}
-                  </div>
-                  <div class="mt-2 min-w-0">
-                    {#if session.token_stats.reasoning_tokens && session.token_stats.reasoning_tokens > 0}
-                      <div class="text-base sm:text-lg font-bold text-purple-950 font-mono tracking-tight leading-none truncate">
-                        {formatTokens(session.token_stats.reasoning_tokens)}
-                      </div>
-                      <div class="text-[10px] text-slate-400 font-mono tracking-tight mt-1 truncate select-all" title="{formatNumber(session.token_stats.reasoning_tokens)} tokens">
-                        {formatNumber(session.token_stats.reasoning_tokens)}
-                      </div>
-                    {:else}
-                      <div class="text-sm font-semibold text-slate-400 font-mono tracking-tight leading-none">
-                        -
-                      </div>
-                      <div class="text-[10px] text-slate-400 tracking-tight mt-1 truncate">
-                        {t("no_reasoning")}
-                      </div>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {:else}
-              <div class="p-4 rounded-xl bg-slate-50 border border-slate-100 text-center text-xs text-slate-400">
-                {t("no_token_stats")}
-              </div>
-            {/if}
-          </div>
-
-          <!-- Card 4: 任务层级与子代理树 (Hierarchy) -->
+          <!-- Card 3: 任务层级与子代理树 (Hierarchy) -->
           <div class="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs space-y-3">
             <div class="flex items-center gap-2">
               <div class="h-6 w-6 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">

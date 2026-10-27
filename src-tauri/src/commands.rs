@@ -265,28 +265,9 @@ pub fn calculate_global_stats(sessions: Vec<SessionSummary>) -> GlobalStats {
             stats.orphan_count += 1;
         }
 
-        let mut s_tokens = 0u64;
-
-        if let Some(ref ts) = s.token_stats {
-            stats.total_prompt_tokens += ts.prompt_tokens;
-            stats.total_completion_tokens += ts.completion_tokens;
-            stats.total_cache_read_tokens += ts.cache_read_tokens;
-            stats.total_cache_write_tokens += ts.cache_write_tokens;
-            stats.total_tokens += ts.total_tokens;
-            s_tokens = ts.total_tokens;
-        }
-
         let entry = plat_map.entry(s.platform.clone()).or_default();
         entry.count += 1;
         entry.bytes += s.size_bytes;
-        entry.tokens += s_tokens;
-    }
-
-    // Calculate overall cache hit rate
-    let total_cache_prompt = stats.total_prompt_tokens + stats.total_cache_read_tokens;
-    if total_cache_prompt > 0 && stats.total_cache_read_tokens > 0 {
-        let rate = (stats.total_cache_read_tokens as f64 / total_cache_prompt as f64) * 100.0;
-        stats.overall_cache_hit_rate = Some((rate * 10.0).round() / 10.0);
     }
 
     stats.platform_distribution = plat_map;
@@ -302,10 +283,10 @@ mod tests {
         let sessions = scan_all_sessions();
         assert!(!sessions.is_empty(), "Should scan at least one session on this machine");
         let stats = calculate_global_stats(sessions.clone());
-        println!("Scanned {} sessions, {} subagents, total tokens: {}", 
-            stats.total_sessions, stats.subagents, stats.total_tokens);
+        println!("Scanned {} sessions, {} subagents",
+            stats.total_sessions, stats.subagents);
         for (plat, pstat) in &stats.platform_distribution {
-            println!("  Platform {}: {} sessions, {} tokens", plat, pstat.count, pstat.tokens);
+            println!("  Platform {}: {} sessions", plat, pstat.count);
         }
         let zcode_flavors: std::collections::HashSet<_> = sessions.iter().filter(|s| s.platform == "zcode").map(|s| &s.flavor).collect();
         println!("  ZCode distinct flavors/models: {:?}", zcode_flavors);

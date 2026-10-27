@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::adapters::{make_first_prompt, user_text_from_content, AgentAdapter};
-use crate::models::{ChatMessage, SessionSummary, TokenStats, ToolCallItem};
-use crate::services::token_calc::make_stats;
+use crate::models::{ChatMessage, SessionSummary, ToolCallItem};
 
 pub struct DshAdapter;
 
@@ -15,7 +14,6 @@ pub struct DshAdapter;
 #[derive(Default)]
 struct Projection {
     title: Option<String>,
-    token_stats: Option<TokenStats>,
 }
 
 impl DshAdapter {
@@ -139,16 +137,6 @@ impl DshAdapter {
             let title = title.trim();
             if !title.is_empty() {
                 projection.title = Some(title.to_string());
-            }
-        }
-
-        if let Some(totals) = value.pointer("/record/rows/tokenUsage/val/totals") {
-            let prompt = totals.get("uncachedInputTokens").and_then(Value::as_u64).unwrap_or(0);
-            let completion = totals.get("outputTokens").and_then(Value::as_u64).unwrap_or(0);
-            let cache_read = totals.get("cacheReadTokens").and_then(Value::as_u64).unwrap_or(0);
-            let cache_write = totals.get("cacheWriteTokens").and_then(Value::as_u64).unwrap_or(0);
-            if prompt + completion + cache_read + cache_write > 0 {
-                projection.token_stats = Some(make_stats("dsh", prompt, completion, cache_read, cache_write));
             }
         }
 
@@ -355,7 +343,6 @@ impl AgentAdapter for DshAdapter {
                     is_running: Self::writer_holds_lease(&spath.join("session.lock")),
                     is_archived: archived.contains(&sid),
                     has_transcript: log_file.is_some(),
-                    token_stats: projection.token_stats,
                 });
             }
         }
@@ -604,12 +591,6 @@ mod tests {
         assert!(titled.has_transcript);
         assert!(titled.is_archived);
         assert!(!titled.is_running);
-        let tokens = titled.token_stats.as_ref().expect("token totals projected");
-        assert_eq!(tokens.prompt_tokens, 100);
-        assert_eq!(tokens.completion_tokens, 20);
-        assert_eq!(tokens.cache_read_tokens, 30);
-        assert_eq!(tokens.cache_write_tokens, 5);
-        assert_eq!(tokens.total_tokens, 155);
 
         let running = sessions.iter().find(|s| s.id == "bbbb").expect("locked session scanned");
         #[cfg(unix)]

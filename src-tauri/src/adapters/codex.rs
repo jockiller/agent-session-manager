@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use crate::adapters::AgentAdapter;
 use crate::models::{ChatMessage, SessionSummary, ToolCallItem};
-use crate::services::token_calc::make_stats;
 
 crate::lazy_regex!(
     CODEX_UUID_RE,
@@ -99,8 +98,6 @@ impl AgentAdapter for CodexAdapter {
                         let mut created_at = 0i64;
                         let mut updated_at = 0i64;
                         let mut turn_count = 0u32;
-                        let mut prompt_tokens = 0u64;
-                        let mut completion_tokens = 0u64;
 
                         if let Some((idx_title, idx_ts)) = index.get(&sid) {
                             if !idx_title.is_empty() {
@@ -174,11 +171,6 @@ impl AgentAdapter for CodexAdapter {
                                                 }
                                             }
                                         }
-                                    } else if kind == "token_usage" || kind == "usage" {
-                                        if let Some(p) = payload {
-                                            prompt_tokens += p.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                            completion_tokens += p.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0);
-                                        }
                                     }
                                 }
                             }
@@ -203,12 +195,6 @@ impl AgentAdapter for CodexAdapter {
                             }
                         }
 
-                        let token_stats = if prompt_tokens > 0 || completion_tokens > 0 {
-                            Some(make_stats(&model, prompt_tokens, completion_tokens, 0, 0))
-                        } else {
-                            None
-                        };
-
                         summaries.push(SessionSummary {
                             id: sid,
                             platform: "codex".to_string(),
@@ -228,7 +214,6 @@ impl AgentAdapter for CodexAdapter {
                             is_running: false,
                             is_archived: false,
                             has_transcript: true,
-                            token_stats,
                         });
                     }
                 }
