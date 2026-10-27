@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 use crate::config::apply::{AgentPaths, ApplyContext, ApplyRequest};
 use crate::config::endpoint;
 use crate::config::fileio::{open_code_mcp, write_json_map, ApplyError};
-use crate::config::models::{APIKind, EffortLevel, Provider};
+use crate::config::models::{model_ref, APIKind, AgentSettings, EffortLevel, Provider};
 
 pub fn apply(
     request: &ApplyRequest,
@@ -29,12 +29,11 @@ pub fn apply(
         _ => BTreeMap::new(),
     };
     endpoint::prune_providers(&mut providers, &request.providers, &request.retired);
-    let effort = request.settings.effort.trim();
     for provider in &request.providers {
         let key = request.keys.get(&provider.id).cloned().unwrap_or_default();
         providers.insert(
             provider.id.clone(),
-            Value::Object(open_code_provider(provider, &key, effort)),
+            Value::Object(open_code_provider(provider, &key, &request.settings)),
         );
     }
     if let Some(Value::Object(map)) = root.get_mut("providers") {
@@ -106,7 +105,7 @@ pub fn apply(
     Ok(())
 }
 
-fn open_code_provider(provider: &Provider, key: &str, effort: &str) -> Map<String, Value> {
+fn open_code_provider(provider: &Provider, key: &str, agent: &AgentSettings) -> Map<String, Value> {
     let mut settings = Map::new();
     if !provider.base_url.is_empty() {
         settings.insert(
@@ -172,11 +171,12 @@ fn open_code_provider(provider: &Provider, key: &str, effort: &str) -> Map<Strin
                     })
                     .collect();
                 entry.insert("variants".into(), Value::Array(variants));
+                let preferred = agent.effort_for(&model_ref(&provider.id, &model.id));
                 entry.insert(
                     "settings".into(),
                     Value::Object(reasoning_settings(
                         provider.api,
-                        &default_effort(efforts, effort),
+                        &default_effort(efforts, preferred),
                     )),
                 );
             }
@@ -444,6 +444,75 @@ mod tests {
         let text = std::fs::read_to_string(&paths.instructions).unwrap();
         assert_eq!(text, "keep diffs small\n");
         assert!(!text.contains("<!-- agentsync:begin -->"));
+    }
+
+    #[test]
+    fn open_code_writes_per_model_effort() {
+        let dir = TestDir::new("oc_per_model_effort");
+        let home = dir.path();
+        let paths = live_paths(home);
+        let mut document = AppDocument::default();
+        let mut flash = ModelEntry::new("flash", "Flash");
+        flash.efforts = Some(vec!["low".into(), "high".into()]);
+        let mut grok = ModelEntry::new("grok", "Grok");
+        grok.efforts = Some(vec!["low".into(), "medium".into(), "xhigh".into()]);
+        document.providers = vec![Provider {
+            id: "g".into(),
+            name: "GJ".into(),
+            base_url: "https://example.invalid/v1".into(),
+            api: APIKind::Responses,
+            catalog_url: String::new(),
+            api_key: "sk-test".into(),
+            compat_base_url: String::new(),
+            models: vec![flash, grok],
+        }];
+        let mut settings = AgentSettings {
+            model: "g/flash".into(),
+            effort: "high".into(),
+            ..AgentSettings::default()
+        };
+        settings
+            .effort_by_model
+            .insert("g/flash".into(), "low".into());
+        settings
+            .effort_by_model
+            .insert("g/grok".into(), "xhigh".into());
+        document.set_settings(settings, AgentKind::Opencode);
+        apply_to(&document, home);
+
+        let root = read_json_object(&paths.config);
+        let models = root
+            .get("providers")
+            .and_then(Value::as_object)
+            .and_then(|providers| providers.get("g"))
+            .and_then(Value::as_object)
+            .and_then(|provider| provider.get("models"))
+            .and_then(Value::as_object)
+            .unwrap();
+        assert_eq!(
+            models
+                .get("flash")
+                .and_then(Value::as_object)
+                .and_then(|model| model.get("settings"))
+                .and_then(Value::as_object)
+                .and_then(|settings| settings.get("reasoningEffort"))
+                .and_then(Value::as_str),
+            Some("low")
+        );
+        assert_eq!(
+            models
+                .get("grok")
+                .and_then(Value::as_object)
+                .and_then(|model| model.get("settings"))
+                .and_then(Value::as_object)
+                .and_then(|settings| settings.get("reasoningEffort"))
+                .and_then(Value::as_str),
+            Some("xhigh")
+        );
+        assert_eq!(
+            root.get("model").and_then(Value::as_str),
+            Some("g/flash#low")
+        );
     }
 
     #[test]

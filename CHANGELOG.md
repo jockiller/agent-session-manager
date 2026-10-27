@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Changelog entries start with 0.1.7. Earlier releases are documented in
 [GitHub Releases](https://github.com/jockiller/agent-session-manager/releases).
 
+## [Unreleased]
+
+### Added
+
+- **Per-model thinking levels**: OpenCode can set a thinking level on each model. Other
+  agents keep a single default and ignore the per-model map.
+
 ## [0.2.0] - 2026-10-27
 
 ### Added

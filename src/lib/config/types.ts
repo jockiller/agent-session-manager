@@ -59,6 +59,8 @@ export type Library = {
 export type AgentSettings = {
   model: string;
   effort: string;
+  /** Per-model thinking level. Agents that cannot write it ignore the map. */
+  effortByModel: Record<string, string>;
   smallModel: string;
   pickedModelIDs: string[];
   instructionOn: boolean;

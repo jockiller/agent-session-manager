@@ -142,7 +142,7 @@ impl ApplyRequest {
         if base.is_empty() {
             return String::new();
         }
-        let effort = self.settings.effort.trim();
+        let effort = self.settings.effort_for(&base).trim();
         if !effort.is_empty() {
             if let Some(model) = self.model(&base) {
                 if model.efforts.as_ref().is_some_and(|list| list.iter().any(|item| item == effort)) {

@@ -71,6 +71,11 @@ export function agentsWithoutAPI(api: APIKind): AgentKind[] {
   return AGENT_KINDS.filter((kind) => !agentSupportsAPI(kind, api));
 }
 
+/** OpenCode writes a thinking level on each model; other agents keep one default. */
+export function agentWritesPerModelEffort(kind: AgentKind): boolean {
+  return kind === "opencode";
+}
+
 export type ProviderExportMode = "native" | "compat" | "skip";
 
 export function providerExportMode(kind: AgentKind, provider: Provider): ProviderExportMode {
@@ -107,6 +112,7 @@ export function emptySettings(): AgentSettings {
   return {
     model: "",
     effort: "high",
+    effortByModel: {},
     smallModel: "",
     pickedModelIDs: [],
     instructionOn: true,
@@ -147,6 +153,15 @@ function asStringArray(value: unknown): string[] {
 
 function asBool(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function asStringMap(value: unknown): Record<string, string> {
+  const row = asRecord(value);
+  const out: Record<string, string> = {};
+  for (const [key, item] of Object.entries(row)) {
+    if (typeof item === "string") out[key] = item;
+  }
+  return out;
 }
 
 export function normalizeModel(raw: unknown): ModelEntry {
@@ -207,6 +222,7 @@ export function normalizeSettings(raw: unknown): AgentSettings {
   return {
     model: asString(row.model),
     effort: asString(row.effort, "high") || "high",
+    effortByModel: asStringMap(row.effortByModel),
     smallModel: asString(row.smallModel),
     pickedModelIDs: asStringArray(row.pickedModelIDs),
     instructionOn: asBool(row.instructionOn, true),
@@ -294,6 +310,9 @@ export function setPicked(settings: AgentSettings, ref: string, on: boolean, cat
   }
   if (settings.model && !isPicked(settings, settings.model, catalog)) settings.model = "";
   if (settings.smallModel && !isPicked(settings, settings.smallModel, catalog)) settings.smallModel = "";
+  for (const ref of Object.keys(settings.effortByModel)) {
+    if (!isPicked(settings, ref, catalog)) delete settings.effortByModel[ref];
+  }
 }
 
 export function settingsFor(document: AppDocument, kind: AgentKind): AgentSettings {
@@ -345,6 +364,11 @@ export function renameProviderRefs(document: AppDocument, oldId: string, newId: 
     settings.model = remap(settings.model);
     settings.smallModel = remap(settings.smallModel);
     settings.pickedModelIDs = settings.pickedModelIDs.map(remap);
+    const remapped: Record<string, string> = {};
+    for (const [ref, effort] of Object.entries(settings.effortByModel)) {
+      remapped[remap(ref)] = effort;
+    }
+    settings.effortByModel = remapped;
     setSettings(document, kind, settings);
   }
 }

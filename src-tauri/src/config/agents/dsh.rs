@@ -644,6 +644,30 @@ mod tests {
     }
 
     #[test]
+    fn dsh_ignores_effort_by_model() {
+        let dir = TestDir::new("ignore_effort_by_model");
+        let home = dir.path();
+        std::fs::create_dir_all(home.join(".dsh")).unwrap();
+        let mut document = AppDocument::default();
+        document.providers = vec![sample_provider()];
+        let mut settings = AgentSettings {
+            model: "g/flash".into(),
+            effort: "high".into(),
+            profile: "coding".into(),
+            ..AgentSettings::default()
+        };
+        settings
+            .effort_by_model
+            .insert("g/flash".into(), "low".into());
+        document.set_settings(settings, AgentKind::Dsh);
+        apply_doc(&document, home).unwrap();
+        let paths = AgentPaths::live(AgentKind::Dsh, home, "coding", &HashMap::new());
+        let text = std::fs::read_to_string(&paths.config).unwrap();
+        assert!(text.contains("reasoningEffort: high"), "{text}");
+        assert!(!text.contains("reasoningEffort: low"), "{text}");
+    }
+
+    #[test]
     fn dsh_apply_removes_same_url_provider() {
         let dir = TestDir::new("prune_url");
         let home = dir.path();

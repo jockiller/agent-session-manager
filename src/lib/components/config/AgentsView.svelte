@@ -6,6 +6,7 @@
     AGENT_TINT,
     AGENT_TITLE,
     API_TITLE,
+    agentWritesPerModelEffort,
     findModel,
     isPicked,
     modelRef,
@@ -15,7 +16,7 @@
     setPicked,
     summaryPills,
   } from "$lib/config/document";
-  import { EFFORT_LEVELS, type AgentKind, type Provider } from "$lib/config/types";
+  import { EFFORT_LEVELS, type AgentKind, type ModelEntry, type Provider } from "$lib/config/types";
   import ConfigCard from "./ConfigCard.svelte";
   import FieldLabel from "./FieldLabel.svelte";
   import MetaPill from "./MetaPill.svelte";
@@ -39,15 +40,19 @@
     const ref = modelValue || choices[0]?.ref || "";
     return findModel(store.document, ref);
   });
-  let effortChoices = $derived(selectedModel?.efforts ?? [...EFFORT_LEVELS]);
+  let perModelEffort = $derived(agentWritesPerModelEffort(store.selectedAgent));
+  let effortChoices = $derived(
+    perModelEffort ? [...EFFORT_LEVELS] : (selectedModel?.efforts ?? [...EFFORT_LEVELS]),
+  );
   let effortValue = $derived(effortChoices.includes(settings.effort) ? settings.effort : "");
   let applied = $derived(store.appliedLabel(store.selectedAgent));
-  let noThinking = $derived(selectedModel?.efforts?.length === 0);
+  let noThinking = $derived(!perModelEffort && selectedModel?.efforts?.length === 0);
   let modelsEmpty = $derived(store.document.providers.every((provider) => provider.models.length === 0));
 
   function setModel(value: string) {
     store.updateSelectedSettings((next) => {
       next.model = value;
+      if (perModelEffort) return;
       const model = findModel(store.document, value);
       if (model?.efforts) {
         if (model.efforts.length === 0) {
@@ -70,6 +75,30 @@
   function togglePicked(ref: string, on: boolean) {
     store.updateSelectedSettings((next) => {
       setPicked(next, ref, on, catalog);
+    });
+  }
+
+  function modelEffortChoices(model: { efforts?: string[] }): string[] {
+    return model.efforts ?? [...EFFORT_LEVELS];
+  }
+
+  function rowPills(model: ModelEntry): string[] {
+    const pills = summaryPills(model);
+    if (!perModelEffort || model.efforts == null) return pills;
+    const effortLabel =
+      model.efforts.length === 0 ? t("cfg_profile_no_thinking") : model.efforts.join(", ");
+    return pills.filter((pill) => pill !== effortLabel);
+  }
+
+  function modelEffortValue(ref: string, model: { efforts?: string[] }): string {
+    const override = settings.effortByModel[ref];
+    return override && modelEffortChoices(model).includes(override) ? override : "";
+  }
+
+  function setModelEffort(ref: string, value: string) {
+    store.updateSelectedSettings((next) => {
+      if (value) next.effortByModel[ref] = value;
+      else delete next.effortByModel[ref];
     });
   }
 
@@ -166,7 +195,7 @@
               {/each}
             </select>
           </FieldLabel>
-          <FieldLabel title={t("cfg_effort")} class="w-[140px] shrink-0">
+          <FieldLabel title={t(perModelEffort ? "cfg_effort_default" : "cfg_effort")} class="w-[140px] shrink-0">
             {#if noThinking}
               <div class="h-[30px] flex items-center text-xs text-slate-400">{t("cfg_no_thinking")}</div>
             {:else}
@@ -229,23 +258,51 @@
                   <div class="space-y-1">
                     {#each provider.models as model (model.id)}
                       {@const ref = modelRef(provider.id, model.id)}
-                      <label
-                        class="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50/80 {enabled
-                          ? 'cursor-pointer'
+                      {@const thinkingOff = model.efforts?.length === 0}
+                      {@const rowEffortChoices = modelEffortChoices(model)}
+                      <div
+                        class="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50/80 min-w-0 {enabled
+                          ? ''
                           : 'cursor-not-allowed'}"
                       >
-                        <input
-                          type="checkbox"
-                          class="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                          checked={isPicked(settings, ref, catalog)}
-                          disabled={!enabled}
-                          onchange={(e) => togglePicked(ref, e.currentTarget.checked)}
-                        />
-                        <span class="text-xs {enabled ? 'text-slate-800' : 'text-slate-500'} flex-1 min-w-0 truncate">{model.name}</span>
-                        {#each summaryPills(model) as pill}
-                          <MetaPill text={pill} />
-                        {/each}
-                      </label>
+                        <label
+                          class="flex items-center gap-2 min-w-0 flex-1 overflow-hidden {enabled
+                            ? 'cursor-pointer'
+                            : 'cursor-not-allowed'}"
+                        >
+                          <input
+                            type="checkbox"
+                            class="rounded border-slate-300 text-sky-600 focus:ring-sky-500 shrink-0"
+                            checked={isPicked(settings, ref, catalog)}
+                            disabled={!enabled}
+                            onchange={(e) => togglePicked(ref, e.currentTarget.checked)}
+                          />
+                          <span
+                            class="text-xs {enabled ? 'text-slate-800' : 'text-slate-500'} min-w-0 flex-1 truncate"
+                            title={model.name}
+                          >{model.name}</span>
+                          {#each rowPills(model) as pill}
+                            <MetaPill text={pill} />
+                          {/each}
+                        </label>
+                        {#if perModelEffort && enabled && model.efforts != null}
+                          {#if thinkingOff}
+                            <span class="text-[10px] text-slate-400 w-20 shrink-0 truncate">{t("cfg_no_thinking")}</span>
+                          {:else}
+                            <select
+                              class="h-6 w-20 shrink-0 bg-white border border-slate-200 rounded-md px-1 text-[11px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
+                              title={t("cfg_effort")}
+                              value={modelEffortValue(ref, model)}
+                              onchange={(e) => setModelEffort(ref, e.currentTarget.value)}
+                            >
+                              <option value="">{t("cfg_effort_inherit")}</option>
+                              {#each rowEffortChoices as level}
+                                <option value={level}>{level}</option>
+                              {/each}
+                            </select>
+                          {/if}
+                        {/if}
+                      </div>
                     {/each}
                   </div>
                 </div>

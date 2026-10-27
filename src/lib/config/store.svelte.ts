@@ -309,6 +309,9 @@ export class ConfigStore {
       settings.pickedModelIDs = settings.pickedModelIDs.filter((ref) => !ref.startsWith(prefix));
       if (settings.model.startsWith(prefix)) settings.model = "";
       if (settings.smallModel.startsWith(prefix)) settings.smallModel = "";
+      for (const ref of Object.keys(settings.effortByModel)) {
+        if (ref.startsWith(prefix)) delete settings.effortByModel[ref];
+      }
       next.agents[kind] = settings;
     }
     this.document = next;

@@ -423,12 +423,19 @@ fn default_effort() -> String {
     "high".to_string()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSettings {
     #[serde(default)]
     pub model: String,
     #[serde(default = "default_effort")]
     pub effort: String,
+    /// Per-model thinking level. Agents that cannot write it ignore the map.
+    #[serde(
+        rename = "effortByModel",
+        default,
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub effort_by_model: BTreeMap<String, String>,
     #[serde(rename = "smallModel", default)]
     pub small_model: String,
     #[serde(rename = "pickedModelIDs", default)]
@@ -446,6 +453,7 @@ impl Default for AgentSettings {
         Self {
             model: String::new(),
             effort: "high".to_string(),
+            effort_by_model: BTreeMap::new(),
             small_model: String::new(),
             picked_model_ids: Vec::new(),
             instruction_on: true,
@@ -493,6 +501,18 @@ impl AgentSettings {
         if !self.small_model.is_empty() && !self.is_picked(&self.small_model, catalog) {
             self.small_model.clear();
         }
+        if !self.picked_model_ids.is_empty() {
+            let picked = self.picked_model_ids.clone();
+            self.effort_by_model
+                .retain(|r#ref, _| picked.iter().any(|id| id == r#ref));
+        }
+    }
+
+    pub fn effort_for(&self, r#ref: &str) -> &str {
+        self.effort_by_model
+            .get(r#ref)
+            .map(|value| value.as_str())
+            .unwrap_or(self.effort.as_str())
     }
 }
 
@@ -671,6 +691,11 @@ impl AppDocument {
                 .picked_model_ids
                 .iter()
                 .map(|id| remap(id))
+                .collect();
+            settings.effort_by_model = settings
+                .effort_by_model
+                .iter()
+                .map(|(key, value)| (remap(key), value.clone()))
                 .collect();
             self.set_settings(settings, kind);
         }
@@ -867,6 +892,52 @@ mod tests {
         let settings = document.settings(AgentKind::Opencode);
         assert_eq!(settings.model, "gja/flash");
         assert_eq!(settings.picked_model_ids, ["gja/flash"]);
+    }
+
+    #[test]
+    fn effort_for_falls_back_and_drops_unpicked() {
+        let catalog = vec!["g/flash".into(), "g/pro".into()];
+        let mut settings = AgentSettings {
+            effort: "high".into(),
+            ..AgentSettings::default()
+        };
+        settings
+            .effort_by_model
+            .insert("g/flash".into(), "low".into());
+        settings
+            .effort_by_model
+            .insert("g/pro".into(), "xhigh".into());
+        assert_eq!(settings.effort_for("g/flash"), "low");
+        assert_eq!(settings.effort_for("g/other"), "high");
+        settings.set_picked("g/pro", false, &catalog);
+        assert_eq!(
+            settings.effort_by_model.keys().cloned().collect::<Vec<_>>(),
+            ["g/flash"]
+        );
+    }
+
+    #[test]
+    fn provider_rename_rewrites_effort_by_model() {
+        let mut document = AppDocument::default();
+        let mut settings = AgentSettings {
+            model: "gj/flash".into(),
+            picked_model_ids: vec!["gj/flash".into()],
+            ..AgentSettings::default()
+        };
+        settings
+            .effort_by_model
+            .insert("gj/flash".into(), "low".into());
+        document.set_settings(settings, AgentKind::Opencode);
+        document.rename_provider_refs("gj", "gja");
+        let settings = document.settings(AgentKind::Opencode);
+        assert_eq!(
+            settings
+                .effort_by_model
+                .get("gja/flash")
+                .map(String::as_str),
+            Some("low")
+        );
+        assert!(settings.effort_by_model.get("gj/flash").is_none());
     }
 
     #[test]
