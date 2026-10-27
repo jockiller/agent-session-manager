@@ -7,13 +7,15 @@
   import SessionInspector from "$lib/components/SessionInspector.svelte";
   import CleanupModal from "$lib/components/CleanupModal.svelte";
   import AboutModal from "$lib/components/AboutModal.svelte";
+  import ConfigView from "$lib/components/config/ConfigView.svelte";
   import { Star, Download, Trash2, X, Globe, Info } from "@lucide/svelte";
-  import { formatTokens, parseLocalDateStart, parseLocalDateEnd, normalizeTimestamp } from "$lib/utils";
+  import { parseLocalDateStart, parseLocalDateEnd, normalizeTimestamp } from "$lib/utils";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t, i18n, supportedLocales, type Locale } from "$lib/i18n";
 
   async function handleTitlebarMouseDown(e: MouseEvent) {
     if (e.buttons === 1) {
+      if ((e.target as HTMLElement | null)?.closest("button, select, input, a")) return;
       try {
         const win = getCurrentWindow();
         await win.startDragging();
@@ -59,6 +61,7 @@
   let showCleanupModal = $state(false);
   let isCleaningModal = $state(false);
   let showAboutModal = $state(false);
+  let appMode = $state<"session" | "config">("session");
 
   // Workspaces list
   let workspaces = $derived(
@@ -180,11 +183,6 @@
       if (sortBy === "created_asc") return a.created_at - b.created_at;
       if (sortBy === "size_desc") return b.size_bytes - a.size_bytes;
       if (sortBy === "turns_desc") return b.turn_count - a.turn_count;
-      if (sortBy === "tokens_desc") {
-        const ta = a.token_stats?.total_tokens || 0;
-        const tb = b.token_stats?.total_tokens || 0;
-        return tb - ta;
-      }
       return b.updated_at - a.updated_at;
     });
 
@@ -437,18 +435,36 @@
     role="toolbar"
     tabindex="-1"
   >
-    <div class="flex items-center gap-2 pointer-events-none" data-tauri-drag-region>
-      <span class="text-xs font-semibold text-slate-700 tracking-tight">{t("app_title")}</span>
-      <span class="text-[10px] text-slate-400 font-normal">{t("app_subtitle")}</span>
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="flex items-center gap-2 pointer-events-none" data-tauri-drag-region>
+        <span class="text-xs font-semibold text-slate-700 tracking-tight">{t("app_title")}</span>
+        <span class="text-[10px] text-slate-400 font-normal truncate">{t("app_subtitle")}</span>
+      </div>
+      <div
+        class="flex items-center rounded-md bg-slate-200/70 p-0.5 border border-slate-300/50 shrink-0"
+        style="-webkit-app-region: no-drag; pointer-events: auto;"
+      >
+        <button
+          type="button"
+          class="px-2 py-0.5 rounded text-[11px] font-sans font-medium transition cursor-pointer {appMode === 'session'
+            ? 'bg-white text-slate-900 shadow-2xs'
+            : 'text-slate-500 hover:text-slate-800'}"
+          onclick={() => (appMode = "session")}
+        >
+          {t("mode_sessions")}
+        </button>
+        <button
+          type="button"
+          class="px-2 py-0.5 rounded text-[11px] font-sans font-medium transition cursor-pointer {appMode === 'config'
+            ? 'bg-white text-slate-900 shadow-2xs'
+            : 'text-slate-500 hover:text-slate-800'}"
+          onclick={() => (appMode = "config")}
+        >
+          {t("mode_config")}
+        </button>
+      </div>
     </div>
     <div class="flex items-center gap-2.5 text-[11px] text-slate-500 font-mono" data-tauri-drag-region>
-      {#if stats}
-        <span class="pointer-events-none">{stats.total_sessions} {t("sessions_suffix")}</span>
-        <span class="pointer-events-none text-slate-300">·</span>
-        <span class="pointer-events-none">{formatTokens(stats.total_tokens)} tok</span>
-        <span class="pointer-events-none text-slate-300">·</span>
-      {/if}
-
       <!-- Native Language Selector (Interactive without blocking window drag) -->
       <div
         class="relative flex items-center group shrink-0"
@@ -483,55 +499,59 @@
     </div>
   </div>
 
-  <!-- 3-Pane Body -->
-  <div class="flex-1 flex overflow-hidden">
-    <!-- Left Navigation Sidebar (Platform & Quick Views) -->
-    <Sidebar
-      bind:selectedPlatform
-      bind:selectedFilter
-      {stats}
-      {isLoading}
-      starredCount={starredIds.size}
-      onRefresh={refreshAll}
-    />
+  {#if appMode === "config"}
+    <ConfigView />
+  {:else}
+    <!-- 3-Pane Body -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Left Navigation Sidebar (Platform & Quick Views) -->
+      <Sidebar
+        bind:selectedPlatform
+        bind:selectedFilter
+        {stats}
+        {isLoading}
+        starredCount={starredIds.size}
+        onRefresh={refreshAll}
+      />
 
-    <!-- Middle Panel: Session Card List with Search & Sort Toolbar & Linked Telemetry -->
-    <SessionList
-      {treeNodes}
-      flatSessions={filteredSessions}
-      allSessions={sessions}
-      bind:viewMode
-      bind:searchQuery
-      bind:sortBy
-      bind:selectedWorkspace
-      bind:selectedTimeRange
-      bind:customStartDate
-      bind:customEndDate
-      bind:selectedKind
-      {workspaces}
-      selectedSessionId={selectedSession?.id ?? null}
-      bind:selectedIds
-      {starredIds}
-      onSelectSession={handleSelectSession}
-      onToggleStar={toggleStar}
-    />
+      <!-- Middle Panel: Session Card List with Search & Sort Toolbar & Linked Telemetry -->
+      <SessionList
+        {treeNodes}
+        flatSessions={filteredSessions}
+        allSessions={sessions}
+        bind:viewMode
+        bind:searchQuery
+        bind:sortBy
+        bind:selectedWorkspace
+        bind:selectedTimeRange
+        bind:customStartDate
+        bind:customEndDate
+        bind:selectedKind
+        {workspaces}
+        selectedSessionId={selectedSession?.id ?? null}
+        bind:selectedIds
+        {starredIds}
+        onSelectSession={handleSelectSession}
+        onToggleStar={toggleStar}
+      />
 
-    <!-- Right Panel: Session Inspector & Chat Timeline -->
-    <SessionInspector
-      session={selectedSession}
-      {messages}
-      {isLoadingMessages}
-      {parentSession}
-      {childSubagents}
-      isStarred={selectedSession ? starredIds.has(selectedSession.id) : false}
-      onDeleteSingle={handleDeleteSingle}
-      onToggleStar={toggleStar}
-      onJumpSession={handleSelectSession}
-    />
-  </div>
+      <!-- Right Panel: Session Inspector & Chat Timeline -->
+      <SessionInspector
+        session={selectedSession}
+        {messages}
+        {isLoadingMessages}
+        {parentSession}
+        {childSubagents}
+        isStarred={selectedSession ? starredIds.has(selectedSession.id) : false}
+        onDeleteSingle={handleDeleteSingle}
+        onToggleStar={toggleStar}
+        onJumpSession={handleSelectSession}
+      />
+    </div>
+  {/if}
 
   <!-- Floating Bulk Actions Bar (Shown when multiple items are selected) -->
-  {#if selectedIds.size > 0}
+  {#if appMode === "session" && selectedIds.size > 0}
     <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl shadow-xl px-4 py-2 flex items-center gap-3 text-xs text-slate-700 animate-in fade-in slide-in-from-bottom-2 duration-150">
       <span class="font-bold text-slate-900 flex items-center gap-1.5">
         <span class="h-2 w-2 rounded-full bg-sky-500"></span>

@@ -1,9 +1,12 @@
 pub mod adapters;
 pub mod commands;
+pub mod config;
+pub mod config_commands;
 pub mod models;
 pub mod services;
 
 use commands::*;
+use config_commands::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,6 +21,14 @@ pub fn run() {
             open_terminal,
             run_in_terminal,
             calculate_global_stats,
+            config_load,
+            config_save,
+            config_apply,
+            config_detect,
+            config_dsh_profiles,
+            config_pull_catalog,
+            config_check_compat,
+            config_parse_mcp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
