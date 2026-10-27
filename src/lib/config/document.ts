@@ -1,3 +1,4 @@
+import { t } from "$lib/i18n";
 import {
   AGENT_KINDS,
   API_KINDS,
@@ -93,9 +94,11 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   if (typeof a === "object" && typeof b === "object") {
     const left = a as Record<string, unknown>;
     const right = b as Record<string, unknown>;
-    const keys = Object.keys(left);
-    if (keys.length !== Object.keys(right).length) return false;
-    return keys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && deepEqual(left[key], right[key]));
+    // cloneDoc drops undefined-valued keys, so they must compare equal to missing ones.
+    const defined = (record: Record<string, unknown>) => Object.keys(record).filter((key) => record[key] !== undefined);
+    const keys = defined(left);
+    if (keys.length !== defined(right).length) return false;
+    return keys.every((key) => deepEqual(left[key], right[key]));
   }
   return false;
 }
@@ -358,7 +361,7 @@ export function profileSummary(model: ModelEntry): string {
   const mods = model.input.length === 0 ? ["text"] : model.input;
   parts.push(mods.join("/"));
   if (model.efforts) {
-    parts.push(model.efforts.length === 0 ? "无思考" : model.efforts.join(", "));
+    parts.push(model.efforts.length === 0 ? t("cfg_profile_no_thinking") : model.efforts.join(", "));
   }
   return parts.join(" · ");
 }
