@@ -10,6 +10,8 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-27
+
 ### Added
 
 - **Per-model thinking levels**: OpenCode can set a thinking level on each model. Other
