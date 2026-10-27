@@ -210,6 +210,18 @@ impl AntigravityAdapter {
         (ids, verifiable)
     }
 
+    /// Antigravity locks `presence/<id>.lock` while a conversation is open but leaves the file
+    /// behind when the app quits or crashes.
+    #[cfg(unix)]
+    fn presence_held(lock: &Path) -> bool {
+        crate::adapters::flock_is_held(lock)
+    }
+
+    #[cfg(not(unix))]
+    fn presence_held(_lock: &Path) -> bool {
+        true
+    }
+
     fn path_size(p: &Path) -> u64 {
         if p.is_file() {
             return p.metadata().map(|m| m.len()).unwrap_or(0);
@@ -516,8 +528,8 @@ impl AgentAdapter for AntigravityAdapter {
                 }
 
                 let lock_file = fdir.join("presence").join(format!("{}.lock", sid));
-                let presence_running = lock_file.exists();
-                if presence_running {
+                let presence_running = lock_file.exists() && Self::presence_held(&lock_file);
+                if lock_file.exists() {
                     all_paths.push(lock_file.to_string_lossy().to_string());
                 }
 
@@ -885,6 +897,34 @@ mod tests {
             .iter()
             .filter_map(|f| pb_record_id(&buf, f))
             .collect()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_presence_lock_marks_running_only_while_held() {
+        use std::os::unix::io::AsRawFd;
+
+        let home = TempHome::new("presence");
+        let sid = "34c2268d-1e04-4e77-aef9-c4e0149de0a4";
+        let presence = home.cli().join("presence");
+        fs::create_dir_all(&presence).unwrap();
+        let lock_path = presence.join(format!("{}.lock", sid));
+        fs::write(&lock_path, b"").unwrap();
+
+        let adapter = AntigravityAdapter::with_home(home.0.clone());
+        let running = |adapter: &AntigravityAdapter| {
+            adapter
+                .scan_sessions()
+                .into_iter()
+                .find(|s| s.id == sid)
+                .map(|s| s.is_running)
+                .unwrap()
+        };
+        assert!(!running(&adapter), "a leftover lock file is not a running session");
+
+        let lock = File::open(&lock_path).unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert!(running(&adapter), "a held lock marks the session as running");
     }
 
     #[test]

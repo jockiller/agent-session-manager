@@ -94,23 +94,7 @@ impl DshAdapter {
     /// itself — not the file's existence — tells whether a writer is attached.
     #[cfg(unix)]
     fn writer_holds_lease(lock: &Path) -> bool {
-        use std::os::unix::io::AsRawFd;
-
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(lock)
-            .or_else(|_| File::open(lock));
-        let Ok(file) = file else {
-            return false;
-        };
-        let fd = file.as_raw_fd();
-        if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            unsafe { libc::flock(fd, libc::LOCK_UN) };
-            return false;
-        }
-        let code = std::io::Error::last_os_error().raw_os_error();
-        matches!(code, Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+        crate::adapters::flock_is_held(lock)
     }
 
     /// Windows guards writes with a named kernel semaphore and writes no lock file.

@@ -42,6 +42,30 @@ pub fn to_millis(ts: i64) -> i64 {
     }
 }
 
+/// True when another process holds an `flock(2)` on `lock`. Agents that keep a lock file
+/// for the lifetime of a session often leave it behind on exit, so only the lock itself —
+/// not the file's existence — tells whether the session is still attached.
+#[cfg(unix)]
+pub fn flock_is_held(lock: &std::path::Path) -> bool {
+    use std::os::unix::io::AsRawFd;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(lock)
+        .or_else(|_| std::fs::File::open(lock));
+    let Ok(file) = file else {
+        return false;
+    };
+    let fd = file.as_raw_fd();
+    if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        unsafe { libc::flock(fd, libc::LOCK_UN) };
+        return false;
+    }
+    let code = std::io::Error::last_os_error().raw_os_error();
+    matches!(code, Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+}
+
 /// Max characters kept when storing the first user prompt on a SessionSummary
 const FIRST_PROMPT_MAX_CHARS: usize = 200;
 
