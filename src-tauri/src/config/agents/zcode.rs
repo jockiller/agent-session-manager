@@ -610,6 +610,7 @@ mod tests {
                         "high".into(),
                         "xhigh".into(),
                     ]),
+                    cost: None,
                     tool_call: true,
                 },
                 ModelEntry {
@@ -620,6 +621,7 @@ mod tests {
                     output: None,
                     input: Vec::new(),
                     efforts: Some(vec![]),
+                    cost: None,
                     tool_call: true,
                 },
             ],
@@ -1025,6 +1027,7 @@ mod tests {
                     output: None,
                     input: Vec::new(),
                     efforts: Some(vec!["low".into(), "high".into()]),
+                    cost: None,
                     tool_call: true,
                 }],
             }];

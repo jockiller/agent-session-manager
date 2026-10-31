@@ -326,6 +326,23 @@ fn model_json(model: &ModelEntry, api: APIKind) -> Map<String, Value> {
     if let Some(output) = model.output {
         entry.insert("maxTokens".into(), Value::from(output));
     }
+    if let Some(cost) = &model.cost {
+        if !cost.is_empty() {
+            let cost = cost.normalized();
+            let mut values = Map::new();
+            values.insert("input".into(), Value::from(cost.input.unwrap_or(0.0)));
+            values.insert("output".into(), Value::from(cost.output.unwrap_or(0.0)));
+            values.insert(
+                "cacheRead".into(),
+                Value::from(cost.cache_read.unwrap_or(0.0)),
+            );
+            values.insert(
+                "cacheWrite".into(),
+                Value::from(cost.cache_write.unwrap_or(0.0)),
+            );
+            entry.insert("cost".into(), Value::Object(values));
+        }
+    }
     if !model.input.is_empty() {
         entry.insert(
             "input".into(),
@@ -391,7 +408,8 @@ mod tests {
     use super::*;
     use crate::config::apply::apply;
     use crate::config::models::{
-        AgentKind, AgentSettings, AppDocument, MCPServer, MCPTransport, ModelEntry, Provider,
+        AgentKind, AgentSettings, AppDocument, MCPServer, MCPTransport, ModelCost, ModelEntry,
+        Provider,
     };
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap};
@@ -937,5 +955,22 @@ mod tests {
         assert_eq!(sanitize_mcp_name("docs server"), "docs-server");
         assert_eq!(sanitize_mcp_name("@@@"), "-");
         assert_eq!(sanitize_mcp_name(""), "mcp");
+    }
+
+    #[test]
+    fn model_json_writes_cost_with_all_rates() {
+        let mut model = ModelEntry::new("flash", "Flash");
+        model.cost = Some(ModelCost {
+            input: Some(1.5),
+            output: Some(7.5),
+            cache_read: None,
+            cache_write: Some(0.15),
+        });
+        let entry = model_json(&model, APIKind::Completions);
+        let cost = entry.get("cost").and_then(Value::as_object).unwrap();
+        assert_eq!(cost.get("input").and_then(Value::as_f64), Some(1.5));
+        assert_eq!(cost.get("output").and_then(Value::as_f64), Some(7.5));
+        assert_eq!(cost.get("cacheRead").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(cost.get("cacheWrite").and_then(Value::as_f64), Some(0.15));
     }
 }

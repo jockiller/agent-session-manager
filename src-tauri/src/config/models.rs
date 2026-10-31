@@ -207,7 +207,39 @@ fn is_true(value: &bool) -> bool {
     *value
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// USD per million tokens, the unit every supported agent's config uses.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCost {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write: Option<f64>,
+}
+
+impl ModelCost {
+    pub fn is_empty(&self) -> bool {
+        self.input.is_none()
+            && self.output.is_none()
+            && self.cache_read.is_none()
+            && self.cache_write.is_none()
+    }
+
+    pub fn normalized(&self) -> Self {
+        Self {
+            input: Some(self.input.unwrap_or(0.0)),
+            output: Some(self.output.unwrap_or(0.0)),
+            cache_read: Some(self.cache_read.unwrap_or(0.0)),
+            cache_write: Some(self.cache_write.unwrap_or(0.0)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(from = "ModelEntryDe")]
 pub struct ModelEntry {
     pub id: String,
@@ -222,6 +254,8 @@ pub struct ModelEntry {
     pub input: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub efforts: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<ModelCost>,
     #[serde(
         rename = "toolCall",
         default = "default_true",
@@ -242,6 +276,7 @@ impl ModelEntry {
             output: None,
             input: Vec::new(),
             efforts: None,
+            cost: None,
             tool_call: true,
         }
     }
@@ -297,6 +332,8 @@ struct ModelEntryDe {
     input: Vec<String>,
     #[serde(default)]
     efforts: Option<Vec<String>>,
+    #[serde(default)]
+    cost: Option<ModelCost>,
     #[serde(rename = "toolCall", default = "default_true")]
     tool_call: bool,
 }
@@ -316,12 +353,13 @@ impl From<ModelEntryDe> for ModelEntry {
             output: de.output,
             input: de.input,
             efforts: de.efforts,
+            cost: de.cost,
             tool_call: de.tool_call,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Provider {
     pub id: String,
     #[serde(default)]
@@ -955,6 +993,24 @@ mod tests {
         assert_eq!(json.get("toolCall"), Some(&serde_json::Value::Bool(false)));
         assert_eq!(json.get("input"), Some(&serde_json::json!(["text"])));
         assert_eq!(json.get("efforts"), Some(&serde_json::json!([])));
+    }
+
+    #[test]
+    fn model_cost_roundtrips_camel_case() {
+        let mut model = ModelEntry::new("flash", "Flash");
+        model.cost = Some(ModelCost {
+            input: Some(0.75),
+            output: Some(3.75),
+            cache_read: Some(0.075),
+            cache_write: None,
+        });
+        let json = serde_json::to_value(&model).unwrap();
+        let cost = json.get("cost").and_then(serde_json::Value::as_object).unwrap();
+        assert_eq!(cost.get("input"), Some(&serde_json::json!(0.75)));
+        assert_eq!(cost.get("cacheRead"), Some(&serde_json::json!(0.075)));
+        assert!(cost.get("cacheWrite").is_none());
+        let back: ModelEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(back.cost, model.cost);
     }
 
     #[test]

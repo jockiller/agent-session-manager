@@ -140,6 +140,24 @@ fn open_code_provider(provider: &Provider, key: &str, agent: &AgentSettings) -> 
             }
             (None, None) => {}
         }
+        if let Some(cost) = &model.cost {
+            let mut values = Map::new();
+            if let Some(input) = cost.input {
+                values.insert("input".into(), Value::from(input));
+            }
+            if let Some(output) = cost.output {
+                values.insert("output".into(), Value::from(output));
+            }
+            if let Some(cache_read) = cost.cache_read {
+                values.insert("cache_read".into(), Value::from(cache_read));
+            }
+            if let Some(cache_write) = cost.cache_write {
+                values.insert("cache_write".into(), Value::from(cache_write));
+            }
+            if !values.is_empty() {
+                entry.insert("cost".into(), Value::Object(values));
+            }
+        }
         let input = if model.input.is_empty() {
             vec!["text".to_string()]
         } else {
@@ -958,5 +976,50 @@ mod tests {
         assert_eq!(std::fs::read(backup).unwrap(), original);
         let root = read_json_object(&paths.config);
         assert_eq!(root.get("theme").and_then(Value::as_str), Some("old"));
+    }
+
+    #[test]
+    fn open_code_writes_model_cost_per_million_tokens() {
+        let dir = TestDir::new("oc_cost");
+        let home = dir.path();
+        let paths = live_paths(home);
+        let mut document = AppDocument::default();
+        document.providers = vec![Provider {
+            id: "g".into(),
+            name: "GJ".into(),
+            base_url: "https://example.invalid/v1".into(),
+            api: APIKind::Responses,
+            catalog_url: String::new(),
+            api_key: "sk-test".into(),
+            compat_base_url: String::new(),
+            models: vec![ModelEntry {
+                cost: Some(crate::config::models::ModelCost {
+                    input: Some(0.75),
+                    output: Some(3.75),
+                    cache_read: Some(0.075),
+                    cache_write: Some(0.3),
+                }),
+                ..ModelEntry::new("gemini-3.8-flash", "Gemini 3.8 Flash")
+            }],
+        }];
+        apply_to(&document, home);
+
+        let root = read_json_object(&paths.config);
+        let cost = root
+            .get("providers")
+            .and_then(Value::as_object)
+            .and_then(|providers| providers.get("g"))
+            .and_then(Value::as_object)
+            .and_then(|provider| provider.get("models"))
+            .and_then(Value::as_object)
+            .and_then(|models| models.get("gemini-3.8-flash"))
+            .and_then(Value::as_object)
+            .and_then(|model| model.get("cost"))
+            .and_then(Value::as_object)
+            .expect("cost object");
+        assert_eq!(cost.get("input").and_then(Value::as_f64), Some(0.75));
+        assert_eq!(cost.get("output").and_then(Value::as_f64), Some(3.75));
+        assert_eq!(cost.get("cache_read").and_then(Value::as_f64), Some(0.075));
+        assert_eq!(cost.get("cache_write").and_then(Value::as_f64), Some(0.3));
     }
 }

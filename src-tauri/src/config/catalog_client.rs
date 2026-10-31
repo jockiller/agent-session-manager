@@ -197,6 +197,7 @@ fn google_entry(item: GoogleModel) -> Option<ModelEntry> {
         output: item.output_token_limit,
         input: Vec::new(),
         efforts,
+        cost: None,
         tool_call: true,
     })
 }

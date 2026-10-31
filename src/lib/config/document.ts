@@ -10,6 +10,7 @@ import {
   type MCPServer,
   type MCPTransport,
   type ModelChoice,
+  type ModelCost,
   type ModelEntry,
   type Provider,
 } from "./types";
@@ -164,6 +165,17 @@ function asStringMap(value: unknown): Record<string, string> {
   return out;
 }
 
+function asCost(raw: unknown): ModelCost | undefined {
+  const row = asRecord(raw);
+  const cost: ModelCost = {
+    input: asNumber(row.input),
+    output: asNumber(row.output),
+    cacheRead: asNumber(row.cacheRead),
+    cacheWrite: asNumber(row.cacheWrite),
+  };
+  return Object.values(cost).some((value) => value !== undefined) ? cost : undefined;
+}
+
 export function normalizeModel(raw: unknown): ModelEntry {
   const row = asRecord(raw);
   const id = asString(row.id);
@@ -177,6 +189,7 @@ export function normalizeModel(raw: unknown): ModelEntry {
     output: asNumber(row.output),
     input: asStringArray(row.input),
     efforts,
+    cost: asCost(row.cost),
     toolCall: asBool(row.toolCall, true),
   };
 }

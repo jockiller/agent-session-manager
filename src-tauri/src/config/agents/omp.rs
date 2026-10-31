@@ -181,6 +181,26 @@ fn yaml_model(model: &ModelEntry, api: APIKind) -> YamlValue {
     if let Some(output) = model.output {
         pairs.push(("maxTokens".into(), YamlValue::Int(output)));
     }
+    if let Some(cost) = &model.cost {
+        if !cost.is_empty() {
+            let cost = cost.normalized();
+            pairs.push((
+                "cost".into(),
+                YamlValue::Map(vec![
+                    ("input".into(), YamlValue::Float(cost.input.unwrap_or(0.0))),
+                    ("output".into(), YamlValue::Float(cost.output.unwrap_or(0.0))),
+                    (
+                        "cacheRead".into(),
+                        YamlValue::Float(cost.cache_read.unwrap_or(0.0)),
+                    ),
+                    (
+                        "cacheWrite".into(),
+                        YamlValue::Float(cost.cache_write.unwrap_or(0.0)),
+                    ),
+                ]),
+            ));
+        }
+    }
     if !model.input.is_empty() {
         pairs.push((
             "input".into(),
@@ -333,7 +353,7 @@ mod tests {
     use super::*;
     use crate::config::apply::apply;
     use crate::config::models::{
-        AgentKind, AgentSettings, AppDocument, MCPServer, MCPTransport, ModelEntry,
+        AgentKind, AgentSettings, AppDocument, MCPServer, MCPTransport, ModelCost, ModelEntry,
     };
     use std::collections::{BTreeMap, HashMap};
     use std::path::{Path, PathBuf};
@@ -906,5 +926,40 @@ defaultThinkingLevel: low
             "second apply wrote {:?}",
             second.written
         );
+    }
+
+    #[test]
+    fn yaml_model_writes_cost_with_all_rates() {
+        let mut model = ModelEntry::new("flash", "Flash");
+        model.cost = Some(ModelCost {
+            input: Some(1.5),
+            output: Some(7.5),
+            cache_read: Some(0.15),
+            cache_write: None,
+        });
+        let YamlValue::Map(pairs) = yaml_model(&model, APIKind::Completions) else {
+            panic!("model is not a map");
+        };
+        let cost = pairs
+            .iter()
+            .find(|(key, _)| key == "cost")
+            .map(|(_, value)| value)
+            .expect("cost");
+        let YamlValue::Map(rates) = cost else {
+            panic!("cost is not a map");
+        };
+        let rate = |key: &str| {
+            rates
+                .iter()
+                .find(|(name, _)| name == key)
+                .and_then(|(_, value)| match value {
+                    YamlValue::Float(number) => Some(*number),
+                    _ => None,
+                })
+        };
+        assert_eq!(rate("input"), Some(1.5));
+        assert_eq!(rate("output"), Some(7.5));
+        assert_eq!(rate("cacheRead"), Some(0.15));
+        assert_eq!(rate("cacheWrite"), Some(0.0));
     }
 }

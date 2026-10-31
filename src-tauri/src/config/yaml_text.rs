@@ -119,6 +119,7 @@ pub fn child_blocks(range: std::ops::Range<usize>, lines: &[String]) -> Vec<Bloc
 pub enum YamlValue {
     Scalar(String),
     Int(i64),
+    Float(f64),
     Bool(bool),
     List(Vec<YamlValue>),
     Map(Vec<(String, YamlValue)>),
@@ -132,6 +133,9 @@ pub fn emit_children(pairs: &[(String, YamlValue)], indent: usize, lines: &mut V
                 lines.push(format!("{}{}: {}", pad, scalar_key(key), quote(raw)));
             }
             YamlValue::Int(number) => {
+                lines.push(format!("{}{}: {}", pad, scalar_key(key), number));
+            }
+            YamlValue::Float(number) => {
                 lines.push(format!("{}{}: {}", pad, scalar_key(key), number));
             }
             YamlValue::Bool(flag) => {
@@ -168,6 +172,7 @@ fn emit_list(items: &[YamlValue], indent: usize, lines: &mut Vec<String>) {
         match item {
             YamlValue::Scalar(raw) => lines.push(format!("{}- {}", pad, quote(raw))),
             YamlValue::Int(number) => lines.push(format!("{}- {}", pad, number)),
+            YamlValue::Float(number) => lines.push(format!("{}- {}", pad, number)),
             YamlValue::Bool(flag) => {
                 lines.push(format!("{}- {}", pad, if *flag { "true" } else { "false" }))
             }

@@ -3,7 +3,7 @@
   import { i18n, t } from "$lib/i18n";
   import { configStore as store } from "$lib/config/store.svelte";
   import { AGENT_TITLE, API_SHORT, API_TITLE, agentsWithoutAPI, summaryPills } from "$lib/config/document";
-  import { API_KINDS, EFFORT_LEVELS, INPUT_KINDS, type APIKind, type ModelEntry } from "$lib/config/types";
+  import { API_KINDS, EFFORT_LEVELS, INPUT_KINDS, type APIKind, type ModelCost, type ModelEntry } from "$lib/config/types";
   import ConfigCard from "./ConfigCard.svelte";
   import FieldLabel from "./FieldLabel.svelte";
   import MetaPill from "./MetaPill.svelte";
@@ -16,6 +16,7 @@
   let expandedModelID = $state<string | null>(null);
   let pulling = $state(false);
   let checking = $state(false);
+  let costDrafts = $state<Record<string, string>>({});
 
   let selectedID = $derived(store.selectedProviderID);
 
@@ -25,6 +26,7 @@
     newModelName = "";
     expandedModelID = null;
     checking = false;
+    costDrafts = {};
   });
 
   function draftOf(id: string) {
@@ -48,6 +50,39 @@
   function intText(model: ModelEntry, key: "context" | "output"): string {
     const value = model[key];
     return value == null ? "" : String(value);
+  }
+
+  function setCostField(id: string, key: keyof ModelCost, text: string) {
+    store.updateSelectedModel(id, (model) => {
+      const cost = { ...(model.cost ?? {}) };
+      const value = text.trim() === "" ? undefined : Number(text);
+      if (value === undefined || !Number.isFinite(value) || value < 0) {
+        delete cost[key];
+      } else {
+        cost[key] = value;
+      }
+      model.cost = Object.values(cost).some((item) => item !== undefined) ? cost : undefined;
+    });
+  }
+
+  function costKey(model: ModelEntry, key: keyof ModelCost): string {
+    return `${store.selectedProviderID ?? ""}:${model.id}:${key}`;
+  }
+
+  function costText(model: ModelEntry, key: keyof ModelCost): string {
+    const draft = costDrafts[costKey(model, key)];
+    if (draft !== undefined) return draft;
+    const value = model.cost?.[key];
+    return value == null ? "" : String(value);
+  }
+
+  function inputCost(model: ModelEntry, key: keyof ModelCost, text: string) {
+    costDrafts[costKey(model, key)] = text;
+    setCostField(model.id, key, text);
+  }
+
+  function blurCost(model: ModelEntry, key: keyof ModelCost) {
+    delete costDrafts[costKey(model, key)];
   }
 
   function modalityOn(model: ModelEntry, kind: string): boolean {
@@ -313,6 +348,55 @@
                           />
                         </FieldLabel>
                       </div>
+                      <FieldLabel title={t("cfg_cost")}>
+                        <div class="grid grid-cols-2 gap-2">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <span class="w-16 shrink-0 text-[11px] text-slate-400">{t("cfg_cost_input")}</span>
+                            <input
+                              class={fieldClass}
+                              inputmode="decimal"
+                              placeholder="0"
+                              value={costText(model, "input")}
+                              oninput={(e) => inputCost(model, "input", e.currentTarget.value)}
+                              onblur={() => blurCost(model, "input")}
+                            />
+                          </div>
+                          <div class="flex items-center gap-2 min-w-0">
+                            <span class="w-16 shrink-0 text-[11px] text-slate-400">{t("cfg_cost_output")}</span>
+                            <input
+                              class={fieldClass}
+                              inputmode="decimal"
+                              placeholder="0"
+                              value={costText(model, "output")}
+                              oninput={(e) => inputCost(model, "output", e.currentTarget.value)}
+                              onblur={() => blurCost(model, "output")}
+                            />
+                          </div>
+                          <div class="flex items-center gap-2 min-w-0">
+                            <span class="w-16 shrink-0 text-[11px] text-slate-400">{t("cfg_cost_cache_read")}</span>
+                            <input
+                              class={fieldClass}
+                              inputmode="decimal"
+                              placeholder="0"
+                              value={costText(model, "cacheRead")}
+                              oninput={(e) => inputCost(model, "cacheRead", e.currentTarget.value)}
+                              onblur={() => blurCost(model, "cacheRead")}
+                            />
+                          </div>
+                          <div class="flex items-center gap-2 min-w-0">
+                            <span class="w-16 shrink-0 text-[11px] text-slate-400">{t("cfg_cost_cache_write")}</span>
+                            <input
+                              class={fieldClass}
+                              inputmode="decimal"
+                              placeholder="0"
+                              value={costText(model, "cacheWrite")}
+                              oninput={(e) => inputCost(model, "cacheWrite", e.currentTarget.value)}
+                              onblur={() => blurCost(model, "cacheWrite")}
+                            />
+                          </div>
+                        </div>
+                      </FieldLabel>
+                      <p class="text-[10px] text-slate-400 leading-relaxed">{t("cfg_cost_hint")}</p>
                       <FieldLabel title={t("cfg_modality")}>
                         <div class="flex flex-wrap gap-1.5">
                           {#each INPUT_KINDS as kind}

@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::models::{EffortLevel, ModelEntry};
+use super::models::{EffortLevel, ModelCost, ModelEntry};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CatalogHit {
     pub context: Option<i64>,
     pub output: Option<i64>,
@@ -12,6 +12,7 @@ pub struct CatalogHit {
     pub efforts: Vec<String>,
     pub tool_call: bool,
     pub reasoning_known: bool,
+    pub cost: Option<ModelCost>,
 }
 
 impl Default for CatalogHit {
@@ -23,6 +24,7 @@ impl Default for CatalogHit {
             efforts: Vec::new(),
             tool_call: true,
             reasoning_known: false,
+            cost: None,
         }
     }
 }
@@ -57,8 +59,8 @@ pub fn index(models_dev: &Value) -> HashMap<String, CatalogHit> {
             };
             let hit = hit_from(model);
             let score = catalog_score(provider_id, model);
-            if let Some((_, existing_score)) = ranked.get(model_id) {
-                if *existing_score >= score {
+            if let Some((existing, existing_score)) = ranked.get(model_id) {
+                if *existing_score > score || (*existing_score == score && existing.cost.is_some()) {
                     continue;
                 }
             }
@@ -140,6 +142,9 @@ pub fn enrich(model: &ModelEntry, index: &HashMap<String, CatalogHit>) -> ModelE
     if next.efforts.is_none() {
         next.efforts = Some(source.efforts);
     }
+    if next.cost.is_none() {
+        next.cost = source.cost;
+    }
     next
 }
 
@@ -157,6 +162,9 @@ pub fn merge(fetched: &ModelEntry, existing: &ModelEntry) -> ModelEntry {
     }
     if existing.efforts.is_some() {
         next.efforts = existing.efforts.clone();
+    }
+    if existing.cost.is_some() {
+        next.cost = existing.cost;
     }
     next.tool_call = existing.tool_call;
     next
@@ -201,6 +209,30 @@ fn hit_from(model: &serde_json::Map<String, Value>) -> CatalogHit {
         efforts: efforts.0,
         tool_call,
         reasoning_known: efforts.1,
+        cost: model.get("cost").and_then(cost_from),
+    }
+}
+
+fn cost_from(raw: &Value) -> Option<ModelCost> {
+    let object = raw.as_object()?;
+    let cost = ModelCost {
+        input: number_value(object.get("input")),
+        output: number_value(object.get("output")),
+        cache_read: number_value(object.get("cache_read")),
+        cache_write: number_value(object.get("cache_write")),
+    };
+    if cost.is_empty() {
+        None
+    } else {
+        Some(cost)
+    }
+}
+
+fn number_value(raw: Option<&Value>) -> Option<f64> {
+    match raw {
+        Some(Value::Number(number)) => number.as_f64(),
+        Some(Value::String(text)) => text.parse().ok(),
+        _ => None,
     }
 }
 
@@ -371,7 +403,8 @@ mod tests {
                         "limit": {"context": 1_000_000, "output": 64_000},
                         "modalities": {"input": ["text", "image", "pdf"]},
                         "reasoning": {"effort": ["low", "medium", "high", "max"]},
-                        "tool_call": true
+                        "tool_call": true,
+                        "cost": {"input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25}
                     }
                 }
             }
@@ -379,6 +412,15 @@ mod tests {
         let filled = enrich(&ModelEntry::new("claude-opus-5-5", "Opus"), &index);
         assert_eq!(filled.context, Some(1_000_000));
         assert_eq!(filled.output, Some(64_000));
+        assert_eq!(
+            filled.cost,
+            Some(ModelCost {
+                input: Some(5.0),
+                output: Some(25.0),
+                cache_read: Some(0.5),
+                cache_write: Some(6.25),
+            })
+        );
         assert_eq!(
             filled.input,
             vec![

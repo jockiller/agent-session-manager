@@ -20,6 +20,13 @@ export type SidebarItem = "agents" | "providers" | "library";
 
 export const SIDEBAR_ITEMS: SidebarItem[] = ["agents", "providers", "library"];
 
+export type ModelCost = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+};
+
 export type ModelEntry = {
   id: string;
   requestId?: string;
@@ -28,6 +35,7 @@ export type ModelEntry = {
   output?: number;
   input: string[];
   efforts?: string[];
+  cost?: ModelCost;
   toolCall: boolean;
 };
 
