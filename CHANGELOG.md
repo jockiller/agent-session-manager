@@ -10,6 +10,14 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-31
+
+### Added
+
+- **Per-model pricing**: providers now keep input, output, cache-read and cache-write rates
+  (USD per million tokens). Rates are filled from models.dev when pulling a catalog and are
+  exported to OpenCode, Pi and omp; the remaining agents are unchanged.
+
 ## [0.2.1] - 2026-10-27
 
 ### Added
