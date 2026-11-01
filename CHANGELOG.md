@@ -10,6 +10,21 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-01
+
+### Added
+
+- **Image model type**: providers can mark a model as an image model. OpenCode export now writes
+  the model `type`, a `text/image` output capability and the matching image provider package
+  (`.../google/images`, `.../openai/images` or `.../openai-compatible/images`), so Gemini image
+  models can generate images instead of failing with "has no image API". Image models are also
+  detected from models.dev when pulling a catalog.
+
+### Fixed
+
+- Re-exporting to OpenCode no longer drops model-level fields the app does not manage, such as
+  `family`, `releaseDate`, `headers` and extra capability flags.
+
 ## [0.2.2] - 2026-10-31
 
 ### Added
