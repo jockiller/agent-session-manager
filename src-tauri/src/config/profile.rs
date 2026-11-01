@@ -2,13 +2,14 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::models::{EffortLevel, ModelCost, ModelEntry};
+use super::models::{EffortLevel, ModelCost, ModelEntry, ModelKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CatalogHit {
     pub context: Option<i64>,
     pub output: Option<i64>,
     pub input: Vec<String>,
+    pub image_output: bool,
     pub efforts: Vec<String>,
     pub tool_call: bool,
     pub reasoning_known: bool,
@@ -21,6 +22,7 @@ impl Default for CatalogHit {
             context: None,
             output: None,
             input: vec!["text".to_string()],
+            image_output: false,
             efforts: Vec::new(),
             tool_call: true,
             reasoning_known: false,
@@ -116,6 +118,9 @@ pub fn infer(id: &str) -> CatalogHit {
     }
     CatalogHit {
         input,
+        image_output: text
+            .split(|character: char| !character.is_alphanumeric())
+            .any(|token| token == "image" || token == "imagen"),
         efforts,
         reasoning_known: false,
         ..CatalogHit::default()
@@ -145,6 +150,9 @@ pub fn enrich(model: &ModelEntry, index: &HashMap<String, CatalogHit>) -> ModelE
     if next.cost.is_none() {
         next.cost = source.cost;
     }
+    if source.image_output {
+        next.kind = ModelKind::Image;
+    }
     next
 }
 
@@ -165,6 +173,9 @@ pub fn merge(fetched: &ModelEntry, existing: &ModelEntry) -> ModelEntry {
     }
     if existing.cost.is_some() {
         next.cost = existing.cost;
+    }
+    if existing.kind == ModelKind::Image {
+        next.kind = ModelKind::Image;
     }
     next.tool_call = existing.tool_call;
     next
@@ -206,6 +217,9 @@ fn hit_from(model: &serde_json::Map<String, Value>) -> CatalogHit {
         } else {
             input
         },
+        image_output: string_list(modalities.get("output"))
+            .iter()
+            .any(|item| item == "image"),
         efforts: efforts.0,
         tool_call,
         reasoning_known: efforts.1,
@@ -448,6 +462,35 @@ mod tests {
         let merged = merge(&filled, &custom);
         assert_eq!(merged.context, Some(200_000));
         assert_eq!(merged.efforts.as_deref(), Some(["high".to_string()].as_slice()));
+    }
+
+    #[test]
+    fn enrich_marks_image_models_from_catalog_and_ids() {
+        let index = index(&json!({
+            "google": {
+                "models": {
+                    "gemini-3.1-flash-image": {
+                        "modalities": {
+                            "input": ["text", "image"],
+                            "output": ["text", "image"]
+                        },
+                        "tool_call": false
+                    }
+                }
+            }
+        }));
+        let from_catalog = enrich(&ModelEntry::new("gemini-3.1-flash-image", "Image"), &index);
+        assert_eq!(from_catalog.kind, ModelKind::Image);
+        assert_eq!(from_catalog.input, ["text", "image"]);
+
+        let from_id = enrich(&ModelEntry::new("gpt-image-1", "Image"), &index);
+        assert_eq!(from_id.kind, ModelKind::Image);
+
+        let chat = enrich(&ModelEntry::new("gemini-3.8-flash", "Flash"), &index);
+        assert_eq!(chat.kind, ModelKind::Chat);
+        let mut manual = chat.clone();
+        manual.kind = ModelKind::Image;
+        assert_eq!(merge(&chat, &manual).kind, ModelKind::Image);
     }
 
     #[test]

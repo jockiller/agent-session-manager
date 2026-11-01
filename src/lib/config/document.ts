@@ -185,6 +185,7 @@ export function normalizeModel(raw: unknown): ModelEntry {
     id,
     requestId: typeof row.requestId === "string" && row.requestId ? row.requestId : undefined,
     name: name || id,
+    type: row.type === "image" ? "image" : undefined,
     context: asNumber(row.context),
     output: asNumber(row.output),
     input: asStringArray(row.input),
@@ -397,6 +398,7 @@ export function profileSummary(model: ModelEntry): string {
   if (model.context != null) parts.push(formatModelTokens(model.context));
   const mods = model.input.length === 0 ? ["text"] : model.input;
   parts.push(mods.join("/"));
+  if (model.type === "image") parts.push(t("cfg_image_badge"));
   if (model.efforts) {
     parts.push(model.efforts.length === 0 ? t("cfg_profile_no_thinking") : model.efforts.join(", "));
   }

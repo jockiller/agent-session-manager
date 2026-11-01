@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 use crate::config::apply::{AgentPaths, ApplyContext, ApplyRequest};
 use crate::config::endpoint;
 use crate::config::fileio::{open_code_mcp, write_json_map, ApplyError};
-use crate::config::models::{model_ref, APIKind, AgentSettings, EffortLevel, Provider};
+use crate::config::models::{model_ref, APIKind, AgentSettings, EffortLevel, ModelKind, Provider};
 
 pub fn apply(
     request: &ApplyRequest,
@@ -31,9 +31,15 @@ pub fn apply(
     endpoint::prune_providers(&mut providers, &request.providers, &request.retired);
     for provider in &request.providers {
         let key = request.keys.get(&provider.id).cloned().unwrap_or_default();
+        let existing = providers.get(&provider.id).cloned();
         providers.insert(
             provider.id.clone(),
-            Value::Object(open_code_provider(provider, &key, &request.settings)),
+            Value::Object(open_code_provider(
+                provider,
+                &key,
+                &request.settings,
+                existing.as_ref(),
+            )),
         );
     }
     if let Some(Value::Object(map)) = root.get_mut("providers") {
@@ -105,7 +111,12 @@ pub fn apply(
     Ok(())
 }
 
-fn open_code_provider(provider: &Provider, key: &str, agent: &AgentSettings) -> Map<String, Value> {
+fn open_code_provider(
+    provider: &Provider,
+    key: &str,
+    agent: &AgentSettings,
+    existing: Option<&Value>,
+) -> Map<String, Value> {
     let mut settings = Map::new();
     if !provider.base_url.is_empty() {
         settings.insert(
@@ -116,29 +127,31 @@ fn open_code_provider(provider: &Provider, key: &str, agent: &AgentSettings) -> 
     if !key.is_empty() {
         settings.insert("apiKey".into(), Value::String(key.to_string()));
     }
+    let existing_models = existing
+        .and_then(Value::as_object)
+        .and_then(|object| object.get("models"))
+        .and_then(Value::as_object);
     let mut models = Map::new();
     for model in &provider.models {
-        let mut entry = Map::new();
+        // Keep fields this app does not model (family, releaseDate, headers, ...) on re-export.
+        let mut entry = existing_models
+            .and_then(|models| models.get(&model.id))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
         entry.insert("modelID".into(), Value::String(model.wire_id().to_string()));
         entry.insert("name".into(), Value::String(model.name.clone()));
-        match (model.context, model.output) {
-            (Some(context), Some(output)) => {
-                let mut limit = Map::new();
-                limit.insert("context".into(), Value::from(context));
-                limit.insert("output".into(), Value::from(output));
-                entry.insert("limit".into(), Value::Object(limit));
-            }
-            (Some(context), None) => {
-                let mut limit = Map::new();
-                limit.insert("context".into(), Value::from(context));
-                entry.insert("limit".into(), Value::Object(limit));
-            }
-            (None, Some(output)) => {
-                let mut limit = Map::new();
-                limit.insert("output".into(), Value::from(output));
-                entry.insert("limit".into(), Value::Object(limit));
-            }
-            (None, None) => {}
+        let mut limit = Map::new();
+        if let Some(context) = model.context {
+            limit.insert("context".into(), Value::from(context));
+        }
+        if let Some(output) = model.output {
+            limit.insert("output".into(), Value::from(output));
+        }
+        if limit.is_empty() {
+            entry.remove("limit");
+        } else {
+            entry.insert("limit".into(), Value::Object(limit));
         }
         if let Some(cost) = &model.cost {
             let mut values = Map::new();
@@ -154,16 +167,28 @@ fn open_code_provider(provider: &Provider, key: &str, agent: &AgentSettings) -> 
             if let Some(cache_write) = cost.cache_write {
                 values.insert("cache_write".into(), Value::from(cache_write));
             }
-            if !values.is_empty() {
+            if values.is_empty() {
+                entry.remove("cost");
+            } else {
                 entry.insert("cost".into(), Value::Object(values));
             }
+        } else {
+            entry.remove("cost");
         }
         let input = if model.input.is_empty() {
             vec!["text".to_string()]
         } else {
             model.input.clone()
         };
-        let mut capabilities = Map::new();
+        let output = if model.kind == ModelKind::Image {
+            vec!["text".to_string(), "image".to_string()]
+        } else {
+            vec!["text".to_string()]
+        };
+        let mut capabilities = match entry.get("capabilities") {
+            Some(Value::Object(map)) => map.clone(),
+            _ => Map::new(),
+        };
         capabilities.insert("tools".into(), Value::Bool(model.tool_call));
         capabilities.insert(
             "input".into(),
@@ -171,32 +196,53 @@ fn open_code_provider(provider: &Provider, key: &str, agent: &AgentSettings) -> 
         );
         capabilities.insert(
             "output".into(),
-            Value::Array(vec![Value::String("text".into())]),
+            Value::Array(output.into_iter().map(Value::String).collect()),
         );
         entry.insert("capabilities".into(), Value::Object(capabilities));
-        if let Some(efforts) = &model.efforts {
-            if !efforts.is_empty() {
-                let variants: Vec<Value> = efforts
-                    .iter()
-                    .map(|level| {
-                        let mut variant = Map::new();
-                        variant.insert("id".into(), Value::String(level.clone()));
-                        variant.insert(
-                            "settings".into(),
-                            Value::Object(reasoning_settings(provider.api, level)),
-                        );
-                        Value::Object(variant)
-                    })
-                    .collect();
-                entry.insert("variants".into(), Value::Array(variants));
-                let preferred = agent.effort_for(&model_ref(&provider.id, &model.id));
-                entry.insert(
-                    "settings".into(),
-                    Value::Object(reasoning_settings(
-                        provider.api,
-                        &default_effort(efforts, preferred),
-                    )),
-                );
+        let efforts = model.efforts.as_ref().filter(|efforts| !efforts.is_empty());
+        if let Some(efforts) = efforts {
+            let variants: Vec<Value> = efforts
+                .iter()
+                .map(|level| {
+                    let mut variant = Map::new();
+                    variant.insert("id".into(), Value::String(level.clone()));
+                    variant.insert(
+                        "settings".into(),
+                        Value::Object(reasoning_settings(provider.api, level)),
+                    );
+                    Value::Object(variant)
+                })
+                .collect();
+            entry.insert("variants".into(), Value::Array(variants));
+            let preferred = agent.effort_for(&model_ref(&provider.id, &model.id));
+            entry.insert(
+                "settings".into(),
+                Value::Object(reasoning_settings(
+                    provider.api,
+                    &default_effort(efforts, preferred),
+                )),
+            );
+        } else {
+            entry.remove("variants");
+            entry.remove("settings");
+        }
+        if model.kind == ModelKind::Image {
+            entry.insert("type".into(), Value::String("image".into()));
+        } else {
+            entry.remove("type");
+        }
+        match provider.api.open_code_image_package() {
+            Some(package) if model.kind == ModelKind::Image => {
+                entry.insert("package".into(), Value::String(package.to_string()));
+            }
+            _ => {
+                let stale = entry
+                    .get("package")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_image_package);
+                if stale {
+                    entry.remove("package");
+                }
             }
         }
         models.insert(model.id.clone(), Value::Object(entry));
@@ -219,6 +265,12 @@ fn open_code_provider(provider: &Provider, key: &str, agent: &AgentSettings) -> 
         object.insert("settings".into(), Value::Object(settings));
     }
     object
+}
+
+// Model-level packages that OpenCode resolves to an image API.
+fn is_image_package(package: &str) -> bool {
+    package.starts_with("@opencode/ai/providers/")
+        && (package.ends_with("/images") || package.ends_with("/images2"))
 }
 
 // Anthropic Messages reads `effort`; Google reads `thinkingConfig.thinkingLevel`; Responses/Completions read `reasoningEffort`.
@@ -260,7 +312,7 @@ mod tests {
     use crate::config::apply::{apply, AgentPaths};
     use crate::config::fileio::read_json_object;
     use crate::config::models::{
-        APIKind, AgentKind, AgentSettings, AppDocument, MCPServer, ModelEntry, Provider,
+        APIKind, AgentKind, AgentSettings, AppDocument, MCPServer, ModelEntry, ModelKind, Provider,
     };
     use serde_json::Value;
     use std::collections::HashMap;
@@ -976,6 +1028,107 @@ mod tests {
         assert_eq!(std::fs::read(backup).unwrap(), original);
         let root = read_json_object(&paths.config);
         assert_eq!(root.get("theme").and_then(Value::as_str), Some("old"));
+    }
+
+    #[test]
+    fn open_code_image_model_writes_type_and_preserves_unknown_fields() {
+        let dir = TestDir::new("oc_image");
+        let home = dir.path();
+        let paths = live_paths(home);
+        std::fs::create_dir_all(paths.config.parent().unwrap()).unwrap();
+        let previous = serde_json::json!({
+            "providers": {
+                "g": {
+                    "name": "G",
+                    "package": "aisdk:@ai-sdk/google",
+                    "models": {
+                        "gemini-image": {
+                            "type": "image",
+                            "family": "gemini",
+                            "releaseDate": "2026-05-28",
+                            "capabilities": { "temperature": true }
+                        },
+                        "flash": { "type": "image", "package": "@opencode/ai/providers/google/images" },
+                        "custom": { "package": "my/custom-package" }
+                    }
+                }
+            }
+        });
+        std::fs::write(&paths.config, serde_json::to_vec(&previous).unwrap()).unwrap();
+
+        let mut image = ModelEntry::new("gemini-image", "Gemini Image");
+        image.kind = ModelKind::Image;
+        image.input = vec!["text".into(), "image".into()];
+        let mut document = AppDocument::default();
+        document.providers = vec![Provider {
+            id: "g".into(),
+            name: "G".into(),
+            base_url: "https://example.invalid/v1".into(),
+            api: APIKind::Google,
+            catalog_url: String::new(),
+            api_key: "sk-test".into(),
+            compat_base_url: String::new(),
+            models: vec![
+                image,
+                ModelEntry::new("flash", "Flash"),
+                ModelEntry::new("custom", "Custom"),
+            ],
+        }];
+        apply_to(&document, home);
+
+        let root = read_json_object(&paths.config);
+        let models = root
+            .get("providers")
+            .and_then(Value::as_object)
+            .and_then(|providers| providers.get("g"))
+            .and_then(Value::as_object)
+            .and_then(|provider| provider.get("models"))
+            .and_then(Value::as_object)
+            .unwrap();
+        let image = models.get("gemini-image").and_then(Value::as_object).unwrap();
+        assert_eq!(image.get("type").and_then(Value::as_str), Some("image"));
+        assert_eq!(
+            image.get("package").and_then(Value::as_str),
+            Some("@opencode/ai/providers/google/images")
+        );
+        assert_eq!(image.get("family").and_then(Value::as_str), Some("gemini"));
+        assert_eq!(
+            image.get("releaseDate").and_then(Value::as_str),
+            Some("2026-05-28")
+        );
+        let capabilities = image
+            .get("capabilities")
+            .and_then(Value::as_object)
+            .unwrap();
+        assert_eq!(
+            capabilities
+                .get("output")
+                .and_then(Value::as_array)
+                .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
+            Some(vec!["text", "image"])
+        );
+        assert_eq!(
+            capabilities.get("temperature"),
+            Some(&Value::Bool(true))
+        );
+
+        let flash = models.get("flash").and_then(Value::as_object).unwrap();
+        assert!(flash.get("type").is_none());
+        assert!(flash.get("package").is_none());
+        let custom = models.get("custom").and_then(Value::as_object).unwrap();
+        assert_eq!(
+            custom.get("package").and_then(Value::as_str),
+            Some("my/custom-package")
+        );
+        assert_eq!(
+            flash
+                .get("capabilities")
+                .and_then(Value::as_object)
+                .and_then(|capabilities| capabilities.get("output"))
+                .and_then(Value::as_array)
+                .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
+            Some(vec!["text"])
+        );
     }
 
     #[test]

@@ -16,6 +16,10 @@ export const EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "
 
 export const INPUT_KINDS = ["text", "image", "pdf"] as const;
 
+export type ModelKind = "chat" | "image";
+
+export const MODEL_KINDS: ModelKind[] = ["chat", "image"];
+
 export type SidebarItem = "agents" | "providers" | "library";
 
 export const SIDEBAR_ITEMS: SidebarItem[] = ["agents", "providers", "library"];
@@ -31,6 +35,8 @@ export type ModelEntry = {
   id: string;
   requestId?: string;
   name: string;
+  /** OpenCode model type; chat when omitted. */
+  type?: ModelKind;
   context?: number;
   output?: number;
   input: string[];

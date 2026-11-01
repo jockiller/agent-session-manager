@@ -156,6 +156,16 @@ impl APIKind {
         }
     }
 
+    /// OpenCode's per-model image provider package; `None` when the family has no image API.
+    pub fn open_code_image_package(self) -> Option<&'static str> {
+        match self {
+            Self::Responses => Some("@opencode/ai/providers/openai/images"),
+            Self::Completions => Some("@opencode/ai/providers/openai-compatible/images"),
+            Self::Anthropic => None,
+            Self::Google => Some("@opencode/ai/providers/google/images"),
+        }
+    }
+
     pub fn zcode_kind(self) -> &'static str {
         match self {
             Self::Responses => "openai",
@@ -239,6 +249,20 @@ impl ModelCost {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelKind {
+    #[default]
+    Chat,
+    Image,
+}
+
+impl ModelKind {
+    pub fn is_chat(&self) -> bool {
+        matches!(self, Self::Chat)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(from = "ModelEntryDe")]
 pub struct ModelEntry {
@@ -246,6 +270,9 @@ pub struct ModelEntry {
     #[serde(rename = "requestId", default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
     pub name: String,
+    /// OpenCode's model `type`: image models generate images instead of chat text.
+    #[serde(rename = "type", default, skip_serializing_if = "ModelKind::is_chat")]
+    pub kind: ModelKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -272,6 +299,7 @@ impl ModelEntry {
             id,
             request_id: None,
             name,
+            kind: ModelKind::Chat,
             context: None,
             output: None,
             input: Vec::new(),
@@ -324,6 +352,8 @@ struct ModelEntryDe {
     request_id: Option<String>,
     #[serde(default)]
     name: String,
+    #[serde(rename = "type", default)]
+    kind: ModelKind,
     #[serde(default)]
     context: Option<i64>,
     #[serde(default)]
@@ -349,6 +379,7 @@ impl From<ModelEntryDe> for ModelEntry {
             id: de.id,
             request_id: de.request_id,
             name,
+            kind: de.kind,
             context: de.context,
             output: de.output,
             input: de.input,
@@ -985,14 +1016,23 @@ mod tests {
         assert!(json.get("input").is_none());
         assert!(json.get("toolCall").is_none());
         assert!(json.get("efforts").is_none());
+        assert!(json.get("type").is_none());
 
         model.tool_call = false;
         model.input = vec!["text".into()];
         model.efforts = Some(vec![]);
+        model.kind = ModelKind::Image;
         let json = serde_json::to_value(&model).unwrap();
         assert_eq!(json.get("toolCall"), Some(&serde_json::Value::Bool(false)));
         assert_eq!(json.get("input"), Some(&serde_json::json!(["text"])));
         assert_eq!(json.get("efforts"), Some(&serde_json::json!([])));
+        assert_eq!(json.get("type"), Some(&serde_json::json!("image")));
+
+        let back: ModelEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(back.kind, ModelKind::Image);
+        let plain: ModelEntry =
+            serde_json::from_value(serde_json::json!({"id": "flash", "name": "Flash"})).unwrap();
+        assert_eq!(plain.kind, ModelKind::Chat);
     }
 
     #[test]
@@ -1032,5 +1072,18 @@ mod tests {
         assert_eq!(APIKind::Google.pi_api(), "google-generative-ai");
         assert_eq!(APIKind::Responses.zcode_api_type(), "openai-responses");
         assert_eq!(APIKind::Google.dsh_api(), "google-generative-ai");
+        assert_eq!(
+            APIKind::Google.open_code_image_package(),
+            Some("@opencode/ai/providers/google/images")
+        );
+        assert_eq!(
+            APIKind::Responses.open_code_image_package(),
+            Some("@opencode/ai/providers/openai/images")
+        );
+        assert_eq!(
+            APIKind::Completions.open_code_image_package(),
+            Some("@opencode/ai/providers/openai-compatible/images")
+        );
+        assert_eq!(APIKind::Anthropic.open_code_image_package(), None);
     }
 }

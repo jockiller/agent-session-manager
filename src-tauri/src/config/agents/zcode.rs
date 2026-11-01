@@ -497,7 +497,8 @@ mod tests {
     use crate::config::apply::{apply, AgentPaths};
     use crate::config::fileio::read_json_object;
     use crate::config::models::{
-        APIKind, AgentKind, AgentSettings, AppDocument, MCPServer, MCPTransport, ModelEntry, Provider,
+        APIKind, AgentKind, AgentSettings, AppDocument, MCPServer, MCPTransport, ModelEntry,
+        ModelKind, Provider,
     };
     use serde_json::json;
     use std::collections::{BTreeMap, HashMap};
@@ -601,6 +602,7 @@ mod tests {
                     id: "opus".into(),
                     request_id: None,
                     name: "Claude Opus 5.5".into(),
+                    kind: ModelKind::Chat,
                     context: Some(200_000),
                     output: Some(64_000),
                     input: vec!["text".into(), "image".into()],
@@ -617,6 +619,7 @@ mod tests {
                     id: "sonnet".into(),
                     request_id: None,
                     name: "Claude Sonnet 5.5".into(),
+                    kind: ModelKind::Chat,
                     context: None,
                     output: None,
                     input: Vec::new(),
@@ -1023,6 +1026,7 @@ mod tests {
                     id: "opus".into(),
                     request_id: None,
                     name: "Opus".into(),
+                    kind: ModelKind::Chat,
                     context: None,
                     output: None,
                     input: Vec::new(),

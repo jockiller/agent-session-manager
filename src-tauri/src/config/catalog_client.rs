@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::display_name;
 use super::endpoint;
-use super::models::{APIKind, ModelEntry, Provider};
+use super::models::{APIKind, ModelEntry, ModelKind, Provider};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CatalogError {
@@ -193,6 +193,7 @@ fn google_entry(item: GoogleModel) -> Option<ModelEntry> {
         id,
         request_id: None,
         name,
+        kind: ModelKind::Chat,
         context: item.input_token_limit,
         output: item.output_token_limit,
         input: Vec::new(),

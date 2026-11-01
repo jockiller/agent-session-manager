@@ -3,7 +3,7 @@
   import { i18n, t } from "$lib/i18n";
   import { configStore as store } from "$lib/config/store.svelte";
   import { AGENT_TITLE, API_SHORT, API_TITLE, agentsWithoutAPI, summaryPills } from "$lib/config/document";
-  import { API_KINDS, EFFORT_LEVELS, INPUT_KINDS, type APIKind, type ModelCost, type ModelEntry } from "$lib/config/types";
+  import { API_KINDS, EFFORT_LEVELS, INPUT_KINDS, MODEL_KINDS, type APIKind, type ModelCost, type ModelEntry, type ModelKind } from "$lib/config/types";
   import ConfigCard from "./ConfigCard.svelte";
   import FieldLabel from "./FieldLabel.svelte";
   import MetaPill from "./MetaPill.svelte";
@@ -87,6 +87,13 @@
 
   function modalityOn(model: ModelEntry, kind: string): boolean {
     return model.input.includes(kind) || (model.input.length === 0 && kind === "text");
+  }
+
+  function setKind(id: string, kind: ModelKind) {
+    store.updateSelectedModel(id, (model) => {
+      if (kind === "image") model.type = "image";
+      else delete model.type;
+    });
   }
 
   function setModality(id: string, kind: string, on: boolean) {
@@ -397,6 +404,20 @@
                         </div>
                       </FieldLabel>
                       <p class="text-[10px] text-slate-400 leading-relaxed">{t("cfg_cost_hint")}</p>
+                      <FieldLabel title={t("cfg_model_type")}>
+                        <div class="flex flex-wrap gap-1.5">
+                          {#each MODEL_KINDS as kind}
+                            <button
+                              type="button"
+                              class={(model.type ?? "chat") === kind ? chipOn : chipIdle}
+                              onclick={() => setKind(model.id, kind)}
+                            >
+                              {kind === "image" ? t("cfg_model_type_image") : t("cfg_model_type_chat")}
+                            </button>
+                          {/each}
+                        </div>
+                      </FieldLabel>
+                      <p class="text-[10px] text-slate-400 leading-relaxed">{t("cfg_model_type_hint")}</p>
                       <FieldLabel title={t("cfg_modality")}>
                         <div class="flex flex-wrap gap-1.5">
                           {#each INPUT_KINDS as kind}
