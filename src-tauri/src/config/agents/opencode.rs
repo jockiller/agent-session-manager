@@ -154,22 +154,23 @@ fn open_code_provider(
             entry.insert("limit".into(), Value::Object(limit));
         }
         if let Some(cost) = &model.cost {
-            let mut values = Map::new();
-            if let Some(input) = cost.input {
-                values.insert("input".into(), Value::from(input));
-            }
-            if let Some(output) = cost.output {
-                values.insert("output".into(), Value::from(output));
-            }
-            if let Some(cache_read) = cost.cache_read {
-                values.insert("cache_read".into(), Value::from(cache_read));
-            }
-            if let Some(cache_write) = cost.cache_write {
-                values.insert("cache_write".into(), Value::from(cache_write));
-            }
-            if values.is_empty() {
+            if cost.is_empty() {
                 entry.remove("cost");
             } else {
+                // OpenCode v2 requires input/output and nests cache rates under `cache`.
+                let mut values = Map::new();
+                values.insert("input".into(), Value::from(cost.input.unwrap_or(0.0)));
+                values.insert("output".into(), Value::from(cost.output.unwrap_or(0.0)));
+                let mut cache = Map::new();
+                if let Some(read) = cost.cache_read {
+                    cache.insert("read".into(), Value::from(read));
+                }
+                if let Some(write) = cost.cache_write {
+                    cache.insert("write".into(), Value::from(write));
+                }
+                if !cache.is_empty() {
+                    values.insert("cache".into(), Value::Object(cache));
+                }
                 entry.insert("cost".into(), Value::Object(values));
             }
         } else {
@@ -1172,7 +1173,71 @@ mod tests {
             .expect("cost object");
         assert_eq!(cost.get("input").and_then(Value::as_f64), Some(0.75));
         assert_eq!(cost.get("output").and_then(Value::as_f64), Some(3.75));
-        assert_eq!(cost.get("cache_read").and_then(Value::as_f64), Some(0.075));
-        assert_eq!(cost.get("cache_write").and_then(Value::as_f64), Some(0.3));
+        assert!(cost.get("cache_read").is_none());
+        assert!(cost.get("cache_write").is_none());
+        assert_eq!(
+            cost.get("cache")
+                .and_then(Value::as_object)
+                .and_then(|cache| cache.get("read"))
+                .and_then(Value::as_f64),
+            Some(0.075)
+        );
+        assert_eq!(
+            cost.get("cache")
+                .and_then(Value::as_object)
+                .and_then(|cache| cache.get("write"))
+                .and_then(Value::as_f64),
+            Some(0.3)
+        );
+    }
+
+    #[test]
+    fn open_code_costs_default_required_fields_to_zero() {
+        let dir = TestDir::new("oc_cost_partial");
+        let home = dir.path();
+        let paths = live_paths(home);
+        let mut document = AppDocument::default();
+        document.providers = vec![Provider {
+            id: "g".into(),
+            name: "GJ".into(),
+            base_url: "https://example.invalid/v1".into(),
+            api: APIKind::Responses,
+            catalog_url: String::new(),
+            api_key: "sk-test".into(),
+            compat_base_url: String::new(),
+            models: vec![ModelEntry {
+                cost: Some(crate::config::models::ModelCost {
+                    input: None,
+                    output: None,
+                    cache_read: None,
+                    cache_write: Some(0.3),
+                }),
+                ..ModelEntry::new("gemini-3.8-flash", "Gemini 3.8 Flash")
+            }],
+        }];
+        apply_to(&document, home);
+
+        let root = read_json_object(&paths.config);
+        let cost = root
+            .get("providers")
+            .and_then(Value::as_object)
+            .and_then(|providers| providers.get("g"))
+            .and_then(Value::as_object)
+            .and_then(|provider| provider.get("models"))
+            .and_then(Value::as_object)
+            .and_then(|models| models.get("gemini-3.8-flash"))
+            .and_then(Value::as_object)
+            .and_then(|model| model.get("cost"))
+            .and_then(Value::as_object)
+            .expect("cost object");
+        assert_eq!(cost.get("input").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(cost.get("output").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(
+            cost.get("cache")
+                .and_then(Value::as_object)
+                .and_then(|cache| cache.get("write"))
+                .and_then(Value::as_f64),
+            Some(0.3)
+        );
     }
 }
