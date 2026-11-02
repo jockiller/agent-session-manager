@@ -10,6 +10,15 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-02
+
+### Fixed
+
+- OpenCode export now writes per-model pricing in the v2 shape, with cache rates under
+  `cost.cache.read` / `cost.cache.write` instead of the legacy flat `cache_read` / `cache_write`
+  fields. The required `input` and `output` rates are always written, so cache pricing is no
+  longer ignored by OpenCode.
+
 ## [0.2.3] - 2026-11-01
 
 ### Added
