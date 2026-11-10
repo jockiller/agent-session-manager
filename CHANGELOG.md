@@ -10,6 +10,15 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-11
+
+### Added
+
+- **Catalog model matching**: when a pulled model has no context or price, expand it in Providers
+  and click "Match" to search models.dev by keyword. The dialog starts with the current model ID
+  prefilled, and picking a result fills context, output, cost, input modalities, thinking levels
+  and the image flag. Provider-prefixed and dated model IDs are also matched when pulling a catalog.
+
 ## [0.2.4] - 2026-11-02
 
 ### Fixed
