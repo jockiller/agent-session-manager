@@ -170,6 +170,17 @@ pub async fn config_pull_catalog(
 }
 
 #[tauri::command]
+pub async fn config_search_models(
+    app: AppHandle,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<ModelEntry>, String> {
+    let cache_dir = app.path().app_cache_dir().map_err(|err| err.to_string())?;
+    catalog_cache::global().refresh_if_needed(&cache_dir).await;
+    Ok(catalog_cache::global().search(&query, limit.unwrap_or(50).clamp(1, 200)))
+}
+
+#[tauri::command]
 pub async fn config_check_compat(provider: Provider) -> Result<String, String> {
     catalog_client::check_compat(&provider).await
 }

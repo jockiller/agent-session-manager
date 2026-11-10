@@ -76,7 +76,8 @@ pub fn r#match(id: &str, index: &HashMap<String, CatalogHit>) -> Option<CatalogH
     if let Some(hit) = index.get(id) {
         return Some(hit.clone());
     }
-    let base = id.split_once(':').map(|(head, _)| head).unwrap_or(id);
+    let stripped = id.split_once(':').map(|(head, _)| head).unwrap_or(id);
+    let base = stripped.rsplit('/').next().unwrap_or(stripped);
     if base != id {
         if let Some(hit) = index.get(base) {
             return Some(hit.clone());
@@ -91,6 +92,73 @@ pub fn r#match(id: &str, index: &HashMap<String, CatalogHit>) -> Option<CatalogH
         }
     }
     None
+}
+
+/// A prefilled provider id may carry a provider prefix or a date suffix the
+/// catalog does not use. Fall back to a shorter base so the dialog still
+/// shows related models instead of an empty list.
+fn search_needle(query: &str, index: &HashMap<String, CatalogHit>) -> String {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() || index.keys().any(|id| id.to_lowercase().contains(&needle)) {
+        return needle;
+    }
+    let stripped = query.split_once(':').map(|(head, _)| head).unwrap_or(query);
+    let base = stripped.rsplit('/').next().unwrap_or(stripped);
+    let mut tokens: Vec<&str> = base.split('-').collect();
+    while tokens.len() > 1 {
+        tokens.pop();
+        let candidate = tokens.join("-").to_lowercase();
+        if !candidate.is_empty()
+            && index.keys().any(|id| id.to_lowercase().contains(&candidate))
+        {
+            return candidate;
+        }
+    }
+    needle
+}
+
+/// Keyword search over catalog model ids for the match dialog. Prefix matches
+/// rank before other substring matches; an empty query lists the first ids.
+pub fn search(
+    query: &str,
+    index: &HashMap<String, CatalogHit>,
+    limit: usize,
+) -> Vec<ModelEntry> {
+    let needle = search_needle(query, index);
+    let mut ids: Vec<&String> = index
+        .keys()
+        .filter(|id| needle.is_empty() || id.to_lowercase().contains(&needle))
+        .collect();
+    ids.sort_by(|a, b| {
+        let a_prefix = !needle.is_empty() && a.to_lowercase().starts_with(&needle);
+        let b_prefix = !needle.is_empty() && b.to_lowercase().starts_with(&needle);
+        b_prefix.cmp(&a_prefix).then_with(|| a.cmp(b))
+    });
+    ids.truncate(limit);
+    ids.into_iter()
+        .filter_map(|id| index.get(id).map(|hit| entry_from_hit(id, hit)))
+        .collect()
+}
+
+fn entry_from_hit(id: &str, hit: &CatalogHit) -> ModelEntry {
+    ModelEntry {
+        context: hit.context,
+        output: hit.output,
+        input: hit.input.clone(),
+        efforts: if hit.reasoning_known {
+            Some(hit.efforts.clone())
+        } else {
+            None
+        },
+        cost: hit.cost,
+        kind: if hit.image_output {
+            ModelKind::Image
+        } else {
+            ModelKind::Chat
+        },
+        tool_call: hit.tool_call,
+        ..ModelEntry::new(id, id)
+    }
 }
 
 pub fn infer(id: &str) -> CatalogHit {
@@ -491,6 +559,43 @@ mod tests {
         let mut manual = chat.clone();
         manual.kind = ModelKind::Image;
         assert_eq!(merge(&chat, &manual).kind, ModelKind::Image);
+    }
+
+    #[test]
+    fn search_filters_by_keyword_and_prefers_prefix() {
+        let index = index(&json!({
+            "vendor": {
+                "models": {
+                    "claude-sonnet-4-5": {"limit": {"context": 200_000}},
+                    "my-claude-sonnet": {"limit": {"context": 32_000}},
+                    "gpt-5": {"limit": {"context": 400_000}}
+                }
+            }
+        }));
+        let hits = search("sonnet", &index, 10);
+        let ids: Vec<&str> = hits.iter().map(|model| model.id.as_str()).collect();
+        assert_eq!(ids, vec!["claude-sonnet-4-5", "my-claude-sonnet"]);
+        assert_eq!(hits[0].context, Some(200_000));
+
+        let claude = search("CLAUDE", &index, 10);
+        assert_eq!(claude.len(), 2);
+        assert!(search("missing", &index, 10).is_empty());
+        assert_eq!(search("", &index, 2).len(), 2);
+    }
+
+    #[test]
+    fn search_falls_back_to_trimmed_model_id() {
+        let index = index(&json!({
+            "vendor": {
+                "models": {
+                    "claude-sonnet-4-5": {"limit": {"context": 200_000}},
+                    "gpt-5": {"limit": {"context": 400_000}}
+                }
+            }
+        }));
+        let hits = search("anthropic/claude-sonnet-4-5-20260101", &index, 10);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "claude-sonnet-4-5");
     }
 
     #[test]

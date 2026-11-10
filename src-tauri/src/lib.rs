@@ -27,6 +27,7 @@ pub fn run() {
             config_detect,
             config_dsh_profiles,
             config_pull_catalog,
+            config_search_models,
             config_check_compat,
             config_parse_mcp,
         ])

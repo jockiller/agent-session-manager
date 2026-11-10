@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime};
 use serde_json::Value;
 
 use super::fileio;
+use super::models::ModelEntry;
 use super::profile::{self, CatalogHit};
 
 const TTL: Duration = Duration::from_secs(86_400);
@@ -36,6 +37,11 @@ impl ModelCatalog {
 
     pub fn snapshot(&self) -> HashMap<String, CatalogHit> {
         self.lock().index.clone()
+    }
+
+    pub fn search(&self, query: &str, limit: usize) -> Vec<ModelEntry> {
+        let inner = self.lock();
+        profile::search(query, &inner.index, limit)
     }
 
     pub async fn refresh_if_needed(&self, cache_dir: &Path) {

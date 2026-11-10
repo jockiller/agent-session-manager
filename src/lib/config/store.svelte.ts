@@ -433,6 +433,11 @@ export class ConfigStore {
     }
   }
 
+  async searchModels(query: string, limit = 50): Promise<ModelEntry[]> {
+    const hits = await invoke<ModelEntry[]>("config_search_models", { query, limit });
+    return Array.isArray(hits) ? hits.map(normalizeModel) : [];
+  }
+
   addModel(id: string, name: string): void {
     const trimmed = id.trim();
     if (!trimmed) {

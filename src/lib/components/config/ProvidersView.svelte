@@ -6,6 +6,7 @@
   import { API_KINDS, EFFORT_LEVELS, INPUT_KINDS, MODEL_KINDS, type APIKind, type ModelCost, type ModelEntry, type ModelKind } from "$lib/config/types";
   import ConfigCard from "./ConfigCard.svelte";
   import FieldLabel from "./FieldLabel.svelte";
+  import MatchModelModal from "./MatchModelModal.svelte";
   import MetaPill from "./MetaPill.svelte";
   import SaveBar from "./SaveBar.svelte";
   import SectionLabel from "./SectionLabel.svelte";
@@ -16,6 +17,7 @@
   let expandedModelID = $state<string | null>(null);
   let pulling = $state(false);
   let checking = $state(false);
+  let matchTarget = $state<ModelEntry | null>(null);
   let costDrafts = $state<Record<string, string>>({});
 
   let selectedID = $derived(store.selectedProviderID);
@@ -26,6 +28,7 @@
     newModelName = "";
     expandedModelID = null;
     checking = false;
+    matchTarget = null;
     costDrafts = {};
   });
 
@@ -139,6 +142,32 @@
     } finally {
       pulling = false;
     }
+  }
+
+  function applyMatch(id: string, hit: ModelEntry) {
+    store.updateSelectedModel(id, (model) => {
+      if (hit.context != null) model.context = hit.context;
+      if (hit.output != null) model.output = hit.output;
+      if (hit.input.length > 0) model.input = [...hit.input];
+      if (hit.efforts) model.efforts = [...hit.efforts];
+      if (hit.cost) model.cost = { ...hit.cost };
+      if (hit.type === "image") model.type = "image";
+      model.toolCall = hit.toolCall;
+    });
+  }
+
+  function pickMatch(hit: ModelEntry) {
+    const target = matchTarget;
+    if (!target) return;
+    applyMatch(target.id, hit);
+    matchTarget = null;
+    store.status = t("cfg_match_filled", { id: hit.id });
+    store.show({
+      title: t("cfg_matched_toast", { id: hit.id }),
+      detail: t("cfg_unsaved_detail"),
+      isError: false,
+      revealedPath: "",
+    });
   }
 
   async function checkCompat() {
@@ -335,6 +364,16 @@
                   </div>
                   {#if expanded}
                     <div class="rounded-lg bg-white/80 border border-slate-100 p-2.5 space-y-2.5">
+                      <div class="flex items-start gap-2">
+                        <p class="flex-1 text-[10px] text-slate-400 leading-relaxed">{t("cfg_match_model_hint")}</p>
+                        <button
+                          type="button"
+                          class="{btnBorder} h-[26px] shrink-0"
+                          onclick={() => (matchTarget = model)}
+                        >
+                          {t("cfg_match_model_button")}
+                        </button>
+                      </div>
                       <div class="flex items-end gap-3">
                         <FieldLabel title={t("cfg_context")} class="flex-1">
                           <input
@@ -489,3 +528,10 @@
     {/if}
   </div>
 </div>
+
+<MatchModelModal
+  isOpen={matchTarget != null}
+  targetID={matchTarget?.id ?? ""}
+  onClose={() => (matchTarget = null)}
+  onPick={pickMatch}
+/>
