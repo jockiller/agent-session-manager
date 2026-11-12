@@ -10,6 +10,14 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-13
+
+### Added
+
+- **Force refresh for models.dev catalog**: added a "Refresh models.dev" action in both the
+  Providers models header and the Match Model dialog to bypass the 24-hour local cache and pull
+  the latest model metadata immediately.
+
 ## [0.2.5] - 2026-11-11
 
 ### Added
