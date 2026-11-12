@@ -77,35 +77,54 @@ impl ModelCatalog {
             }
         }
 
-        let Ok(client) = reqwest::Client::builder()
+        let _ = self.fetch_and_store(cache_dir).await;
+    }
+
+    pub async fn force_refresh(&self, cache_dir: &Path) -> Result<usize, String> {
+        self.fetch_and_store(cache_dir).await
+    }
+
+    async fn fetch_and_store(&self, cache_dir: &Path) -> Result<usize, String> {
+        let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
             .user_agent("AgentSync")
             .build()
-        else {
-            return;
-        };
-        let Ok(response) = client.get(MODELS_DEV_URL).send().await else {
-            return;
-        };
-        if !(200..300).contains(&response.status().as_u16()) {
-            return;
+            .map_err(|err| format!("创建 HTTP 客户端失败：{err}"))?;
+        let response = client
+            .get(MODELS_DEV_URL)
+            .send()
+            .await
+            .map_err(|err| format!("请求 models.dev 失败：{err}"))?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(format!("请求 models.dev 失败（HTTP {status}）"));
         }
-        let Ok(bytes) = response.bytes().await else {
-            return;
-        };
-        let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
-            return;
-        };
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|err| format!("读取 models.dev 响应失败：{err}"))?;
+        self.apply_bytes(cache_dir, &bytes)
+    }
+
+    fn apply_bytes(&self, cache_dir: &Path, bytes: &[u8]) -> Result<usize, String> {
+        let value = serde_json::from_slice::<Value>(bytes)
+            .map_err(|err| format!("解析 models.dev 数据失败：{err}"))?;
         if !value.is_object() {
-            return;
+            return Err("models.dev 返回格式异常".to_string());
         }
         let index = profile::index(&value);
+        if index.is_empty() {
+            return Err("models.dev 返回了空目录".to_string());
+        }
+        let count = index.len();
         {
             let mut inner = self.lock();
             inner.index = index;
             inner.loaded_at = Some(SystemTime::now());
         }
-        let _ = fileio::atomic_write(&cache, &bytes, 0o644);
+        let cache = cache_dir.join("models-dev.json");
+        let _ = fileio::atomic_write(&cache, bytes, 0o644);
+        Ok(count)
     }
 }
 
@@ -180,5 +199,44 @@ mod tests {
             .expect("indexed");
         assert_eq!(hit.context, Some(200000));
         assert_eq!(hit.output, Some(8192));
+    }
+
+    #[test]
+    fn apply_bytes_updates_index_and_overwrites_cache() {
+        let dir = TestDir::new("catalog_apply");
+        let old = serde_json::json!({
+            "anthropic": {
+                "models": {
+                    "claude-old": { "limit": { "context": 100000 } }
+                }
+            }
+        });
+        let fresh = serde_json::json!({
+            "anthropic": {
+                "models": {
+                    "claude-new": { "limit": { "context": 250000, "output": 16384 } }
+                }
+            }
+        });
+        let catalog = ModelCatalog::new();
+        let old_count = catalog
+            .apply_bytes(dir.path(), &serde_json::to_vec(&old).unwrap())
+            .unwrap();
+        assert_eq!(old_count, 1);
+
+        let new_count = catalog
+            .apply_bytes(dir.path(), &serde_json::to_vec(&fresh).unwrap())
+            .unwrap();
+        assert_eq!(new_count, 1);
+
+        let snap = catalog.snapshot();
+        assert!(snap.get("claude-old").is_none());
+        let hit = snap.get("claude-new").expect("updated model");
+        assert_eq!(hit.context, Some(250000));
+        assert_eq!(hit.output, Some(16384));
+
+        let cached = std::fs::read(dir.path().join("models-dev.json")).unwrap();
+        let parsed: Value = serde_json::from_slice(&cached).unwrap();
+        assert!(parsed["anthropic"]["models"]["claude-new"].is_object());
     }
 }

@@ -438,6 +438,28 @@ export class ConfigStore {
     return Array.isArray(hits) ? hits.map(normalizeModel) : [];
   }
 
+  async refreshModelsDev(options: { toast?: boolean } = {}): Promise<number> {
+    this.errorMessage = "";
+    this.status = t("cfg_refreshing_models_dev");
+    try {
+      const count = await invoke<number>("config_refresh_models_dev");
+      this.status = t("cfg_refreshed_models_dev", { n: count });
+      if (options.toast !== false) {
+        this.show({
+          title: t("cfg_refreshed_models_dev", { n: count }),
+          detail: "",
+          isError: false,
+          revealedPath: "",
+        });
+      }
+      return count;
+    } catch (err) {
+      this.errorMessage = invokeError(err);
+      this.status = "";
+      throw err;
+    }
+  }
+
   addModel(id: string, name: string): void {
     const trimmed = id.trim();
     if (!trimmed) {

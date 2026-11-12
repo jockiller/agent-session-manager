@@ -181,6 +181,12 @@ pub async fn config_search_models(
 }
 
 #[tauri::command]
+pub async fn config_refresh_models_dev(app: AppHandle) -> Result<usize, String> {
+    let cache_dir = app.path().app_cache_dir().map_err(|err| err.to_string())?;
+    catalog_cache::global().force_refresh(&cache_dir).await
+}
+
+#[tauri::command]
 pub async fn config_check_compat(provider: Provider) -> Result<String, String> {
     catalog_client::check_compat(&provider).await
 }

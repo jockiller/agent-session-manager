@@ -28,6 +28,7 @@ pub fn run() {
             config_dsh_profiles,
             config_pull_catalog,
             config_search_models,
+            config_refresh_models_dev,
             config_check_compat,
             config_parse_mcp,
         ])

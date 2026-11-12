@@ -16,6 +16,7 @@
   let newModelName = $state("");
   let expandedModelID = $state<string | null>(null);
   let pulling = $state(false);
+  let refreshingModelsDev = $state(false);
   let checking = $state(false);
   let matchTarget = $state<ModelEntry | null>(null);
   let costDrafts = $state<Record<string, string>>({});
@@ -141,6 +142,17 @@
       await store.pullCatalog();
     } finally {
       pulling = false;
+    }
+  }
+
+  async function refreshModelsDev() {
+    refreshingModelsDev = true;
+    try {
+      await store.refreshModelsDev();
+    } catch {
+      // errorMessage is updated in store
+    } finally {
+      refreshingModelsDev = false;
     }
   }
 
@@ -317,7 +329,21 @@
             <div class="flex-1 min-w-0">
               <SectionLabel title={t("cfg_models")} accessory={String(provider.models.length)} />
             </div>
-            <button type="button" class={btnBorder} disabled={pulling} onclick={() => pullCatalog()}>
+            <button
+              type="button"
+              class={btnBorder}
+              title={t("cfg_refresh_models_dev_hint")}
+              disabled={refreshingModelsDev || pulling}
+              onclick={() => refreshModelsDev()}
+            >
+              {#if refreshingModelsDev}
+                <LoaderCircle class="h-3 w-3 animate-spin" />
+              {:else}
+                <RefreshCw class="h-3 w-3" />
+              {/if}
+              {t("cfg_refresh_models_dev")}
+            </button>
+            <button type="button" class={btnBorder} disabled={pulling || refreshingModelsDev} onclick={() => pullCatalog()}>
               {#if pulling}
                 <LoaderCircle class="h-3 w-3 animate-spin" />
               {:else}
