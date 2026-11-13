@@ -10,6 +10,15 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-13
+
+### Fixed
+
+- **Antigravity duplicate sessions and empty filtered list**: deduplicated sessions across
+  Antigravity flavors (`antigravity`, `antigravity-cli`, `antigravity-ide`) by session ID so
+  CLI summaries mirrored into the desktop hub database no longer inflate counts or trigger
+  Svelte keyed-list duplicate errors when filtering by Antigravity.
+
 ## [0.2.6] - 2026-11-13
 
 ### Added
