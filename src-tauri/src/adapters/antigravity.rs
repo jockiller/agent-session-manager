@@ -222,6 +222,44 @@ impl AntigravityAdapter {
         true
     }
 
+    fn summary_rank(s: &SessionSummary) -> (bool, bool, u64, bool, u32, i64) {
+        (
+            !s.all_paths.is_empty(),
+            s.has_transcript,
+            s.size_bytes,
+            s.title != "(无标题会话)",
+            s.turn_count,
+            s.updated_at,
+        )
+    }
+
+    fn is_better_summary(candidate: &SessionSummary, existing: &SessionSummary) -> bool {
+        Self::summary_rank(candidate) > Self::summary_rank(existing)
+    }
+
+    fn merge_summary_fallback(winner: &mut SessionSummary, loser: SessionSummary) {
+        if winner.title == "(无标题会话)" && loser.title != "(无标题会话)" {
+            winner.title = loser.title;
+        }
+        if winner.first_prompt.is_empty() && !loser.first_prompt.is_empty() {
+            winner.first_prompt = loser.first_prompt;
+        }
+        if winner.cwd.is_empty() && !loser.cwd.is_empty() {
+            winner.cwd = loser.cwd;
+        }
+        if winner.updated_at <= 0 && loser.updated_at > 0 {
+            winner.updated_at = loser.updated_at;
+        }
+        if winner.created_at <= 0 && loser.created_at > 0 {
+            winner.created_at = loser.created_at;
+        }
+        if winner.parent_id.is_none() && loser.parent_id.is_some() {
+            winner.parent_id = loser.parent_id;
+            winner.is_subagent = loser.is_subagent;
+        }
+        winner.is_running = winner.is_running || loser.is_running;
+    }
+
     fn path_size(p: &Path) -> u64 {
         if p.is_file() {
             return p.metadata().map(|m| m.len()).unwrap_or(0);
@@ -410,7 +448,8 @@ impl AgentAdapter for AntigravityAdapter {
         }
 
         let projects = Self::load_projects(&base);
-        let mut summaries = Vec::new();
+        let mut summaries: Vec<SessionSummary> = Vec::new();
+        let mut seen: HashMap<String, usize> = HashMap::new();
         for (flavor, dir_name) in FLAVORS {
             let fdir = base.join(dir_name);
             if !fdir.exists() {
@@ -635,8 +674,8 @@ impl AgentAdapter for AntigravityAdapter {
 
                 let is_running = presence_running || status_running;
 
-                summaries.push(SessionSummary {
-                    id: sid,
+                let summary = SessionSummary {
+                    id: sid.clone(),
                     platform: "antigravity".to_string(),
                     flavor: format!("agy-{}", flavor),
                     dirname: dir_name.to_string(),
@@ -654,7 +693,19 @@ impl AgentAdapter for AntigravityAdapter {
                     is_running,
                     is_archived: false,
                     has_transcript,
-                });
+                };
+
+                if let Some(&idx) = seen.get(&sid) {
+                    if Self::is_better_summary(&summary, &summaries[idx]) {
+                        let old = std::mem::replace(&mut summaries[idx], summary);
+                        Self::merge_summary_fallback(&mut summaries[idx], old);
+                    } else {
+                        Self::merge_summary_fallback(&mut summaries[idx], summary);
+                    }
+                } else {
+                    seen.insert(sid, summaries.len());
+                    summaries.push(summary);
+                }
             }
         }
 
@@ -1028,5 +1079,46 @@ mod tests {
             .unwrap();
         assert_eq!(dropped, 0);
         assert_eq!(kept, 1);
+    }
+
+    #[test]
+    fn test_scan_sessions_deduplicates_mirrored_hub_summaries() {
+        let home = TempHome::new("dedup");
+        let app_dir = home.0.join("antigravity");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        let cli_sid = "11111111-1111-4111-8111-111111111111";
+        let app_sid = "22222222-2222-4222-8222-222222222222";
+
+        // CLI owns the actual transcript & db on disk under antigravity-cli
+        let cli_logs = home.cli().join("brain").join(cli_sid).join(".system_generated").join("logs");
+        fs::create_dir_all(&cli_logs).unwrap();
+        fs::write(
+            cli_logs.join("transcript.jsonl"),
+            r#"{"type":"USER_INPUT","content":"<USER_REQUEST>CLI question</USER_REQUEST>","created_at":"2026-11-13T01:00:00Z"}"#,
+        )
+        .unwrap();
+        write_db(&home.cli().join("conversation_summaries.db"), &[cli_sid]);
+
+        // App's conversation_summaries.db mirrors the CLI session ID alongside its own session
+        let app_logs = app_dir.join("brain").join(app_sid).join(".system_generated").join("logs");
+        fs::create_dir_all(&app_logs).unwrap();
+        fs::write(
+            app_logs.join("transcript.jsonl"),
+            r#"{"type":"USER_INPUT","content":"<USER_REQUEST>App question</USER_REQUEST>","created_at":"2026-11-13T02:00:00Z"}"#,
+        )
+        .unwrap();
+        write_db(&app_dir.join("conversation_summaries.db"), &[cli_sid, app_sid]);
+
+        let adapter = AntigravityAdapter::with_home(home.0.clone());
+        let sessions = adapter.scan_sessions();
+
+        assert_eq!(sessions.len(), 2, "mirrored summary rows must not create duplicate sessions");
+        let cli_session = sessions.iter().find(|s| s.id == cli_sid).unwrap();
+        assert_eq!(cli_session.flavor, "agy-cli");
+        assert!(cli_session.has_transcript);
+        let app_session = sessions.iter().find(|s| s.id == app_sid).unwrap();
+        assert_eq!(app_session.flavor, "agy-app");
+        assert!(app_session.has_transcript);
     }
 }

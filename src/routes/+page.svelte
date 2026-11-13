@@ -254,11 +254,17 @@
     isLoading = true;
     try {
       const data = await invoke<SessionSummary[]>("scan_all_sessions");
-      const normalizedData = data.map((item) => ({
-        ...item,
-        created_at: normalizeTimestamp(item.created_at),
-        updated_at: normalizeTimestamp(item.updated_at),
-      }));
+      const seenIds = new Set<string>();
+      const normalizedData: SessionSummary[] = [];
+      for (const item of data) {
+        if (seenIds.has(item.id)) continue;
+        seenIds.add(item.id);
+        normalizedData.push({
+          ...item,
+          created_at: normalizeTimestamp(item.created_at),
+          updated_at: normalizeTimestamp(item.updated_at),
+        });
+      }
       sessions = normalizedData;
 
       // Update global stats
@@ -271,11 +277,11 @@
         if (found) {
           selectedSession = found;
         } else {
-          selectedSession = data[0] || null;
-          if (data[0]) handleSelectSession(data[0]);
+          selectedSession = normalizedData[0] || null;
+          if (normalizedData[0]) handleSelectSession(normalizedData[0]);
         }
-      } else if (data.length > 0) {
-        handleSelectSession(data[0]);
+      } else if (normalizedData.length > 0) {
+        handleSelectSession(normalizedData[0]);
       }
     } catch (err) {
       console.error("Failed to scan sessions:", err);
