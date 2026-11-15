@@ -10,6 +10,23 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-15
+
+### Added
+
+- **Provider enable/disable toggle**: added an enable switch in Providers configuration; disabled
+  providers stay out of Agents model pickers and default model dropdowns.
+
+### Fixed
+
+- **Titlebar click preemption and double zoom**: switched to Tauri native
+  `data-tauri-drag-region="deep"` with `data-tauri-drag-region="false"` on interactive controls,
+  removing duplicate manual drag/maximize handlers so switching between Sessions and Config tabs
+  and double-clicking the titlebar behave properly.
+- **Prune disabled and deleted providers when applying agent configs**: persisted sanitized
+  `retiredProviders` entries across deletes/renames and included disabled providers in `retired`
+  so exporting agent configs removes stale provider entries while keeping foreign configurations.
+
 ## [0.2.7] - 2026-11-13
 
 ### Fixed
