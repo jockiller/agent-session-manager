@@ -47,7 +47,9 @@
   let effortValue = $derived(effortChoices.includes(settings.effort) ? settings.effort : "");
   let applied = $derived(store.appliedLabel(store.selectedAgent));
   let noThinking = $derived(!perModelEffort && selectedModel?.efforts?.length === 0);
-  let modelsEmpty = $derived(store.document.providers.every((provider) => provider.models.length === 0));
+  let modelsEmpty = $derived(
+    store.document.providers.every((provider) => !provider.enabled || provider.models.length === 0),
+  );
 
   function setModel(value: string) {
     store.updateSelectedSettings((next) => {
@@ -229,7 +231,7 @@
         {:else}
           <div class="space-y-4">
             {#each store.document.providers as provider (provider.id)}
-              {#if provider.models.length > 0}
+              {#if provider.enabled && provider.models.length > 0}
                 {@const mode = providerExportMode(store.selectedAgent, provider)}
                 {@const enabled = mode !== "skip"}
                 <div class="space-y-2 {enabled ? '' : 'opacity-60'}">

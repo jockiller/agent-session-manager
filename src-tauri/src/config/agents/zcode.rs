@@ -561,6 +561,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-a".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m1", "M1")],
             },
             Provider {
@@ -571,6 +572,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-b".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m2", "M2")],
             },
         ];
@@ -597,6 +599,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-relay".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![
                 ModelEntry {
                     id: "opus".into(),
@@ -1022,6 +1025,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-relay".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry {
                     id: "opus".into(),
                     request_id: None,

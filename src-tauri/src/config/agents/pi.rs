@@ -452,6 +452,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-relay".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![
                 ModelEntry {
                     context: Some(200_000),
@@ -513,6 +514,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-a".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m1", "M1")],
             },
             Provider {
@@ -523,6 +525,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-b".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m2", "M2")],
             },
         ];
@@ -760,6 +763,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-relay".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry {
                     efforts: Some(vec!["low".into(), "high".into()]),
                     ..ModelEntry::new("opus", "Opus")
@@ -795,6 +799,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-relay".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new("flash", "Flash")],
         }];
         document.set_settings(

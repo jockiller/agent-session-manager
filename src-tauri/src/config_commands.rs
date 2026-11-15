@@ -47,8 +47,43 @@ fn load_from_dir(app_data: &Path) -> AppDocument {
     document
 }
 
-fn save_to_dir(app_data: &Path, document: &AppDocument) -> Result<(), String> {
-    fileio::write_document(document, &config_state_path(app_data)).map_err(|err| err.message())
+fn sanitize_retired_provider(mut provider: Provider) -> Provider {
+    provider.api_key.clear();
+    provider.catalog_url.clear();
+    provider.enabled = true;
+    provider
+}
+
+fn reconcile_retired_providers(previous: &AppDocument, document: &mut AppDocument) {
+    let active_ids: std::collections::HashSet<&str> = document
+        .providers
+        .iter()
+        .map(|provider| provider.id.as_str())
+        .collect();
+    let mut by_id: std::collections::BTreeMap<String, Provider> = std::collections::BTreeMap::new();
+    for provider in previous
+        .retired_providers
+        .iter()
+        .chain(previous.providers.iter())
+        .chain(document.retired_providers.iter())
+    {
+        if active_ids.contains(provider.id.as_str()) {
+            continue;
+        }
+        by_id.insert(provider.id.clone(), sanitize_retired_provider(provider.clone()));
+    }
+    document.retired_providers = by_id.into_values().collect();
+}
+
+fn save_to_dir(app_data: &Path, document: &mut AppDocument) -> Result<(), String> {
+    let state_path = config_state_path(app_data);
+    if state_path.exists() {
+        let previous = fileio::load_document(&state_path);
+        reconcile_retired_providers(&previous, document);
+    } else {
+        reconcile_retired_providers(&AppDocument::default(), document);
+    }
+    fileio::write_document(document, &state_path).map_err(|err| err.message())
 }
 
 fn paths_as_strings(paths: &[PathBuf]) -> Vec<String> {
@@ -65,7 +100,7 @@ fn apply_blocking(
 ) -> Result<ApplyResult, String> {
     let _guard = APPLY_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let parsed = AgentKind::from_raw(&kind).ok_or_else(|| format!("未知的 Agent：{kind}"))?;
-    save_to_dir(&app_data, &document)?;
+    save_to_dir(&app_data, &mut document)?;
     let home = current_home();
     let env: HashMap<String, String> = std::env::vars().collect();
     let backups_root = app_data.join("backups");
@@ -75,7 +110,7 @@ fn apply_blocking(
     document
         .applied_at
         .insert(parsed.raw().to_string(), stamp);
-    save_to_dir(&app_data, &document)?;
+    save_to_dir(&app_data, &mut document)?;
     Ok(ApplyResult {
         document,
         written: paths_as_strings(&written),
@@ -125,9 +160,9 @@ pub fn config_load(app: AppHandle) -> Result<AppDocument, String> {
 }
 
 #[tauri::command]
-pub fn config_save(app: AppHandle, document: AppDocument) -> Result<(), String> {
+pub fn config_save(app: AppHandle, mut document: AppDocument) -> Result<(), String> {
     let app_data = app.path().app_data_dir().map_err(|err| err.to_string())?;
-    save_to_dir(&app_data, &document)
+    save_to_dir(&app_data, &mut document)
 }
 
 #[tauri::command]
@@ -261,5 +296,26 @@ mod tests {
         let provider = Provider::new("g", "GJ", "https://example.invalid");
         let err = pull_catalog_for(provider, Path::new("/tmp")).await.unwrap_err();
         assert_eq!(err, "先填 API Key");
+    }
+
+    #[test]
+    fn save_tracks_removed_providers_in_retired_providers() {
+        let dir = TestDir::new("cfg_retired_track");
+        let mut initial = AppDocument::default();
+        let mut removed = Provider::new("old_p", "Old", "https://old.example/v1");
+        removed.api_key = "secret".into();
+        let kept = Provider::new("kept", "Kept", "https://kept.example/v1");
+        initial.providers = vec![removed, kept.clone()];
+        save_to_dir(dir.path(), &mut initial).unwrap();
+
+        let mut next = AppDocument::default();
+        next.providers = vec![kept];
+        save_to_dir(dir.path(), &mut next).unwrap();
+
+        let reloaded = load_from_dir(dir.path());
+        assert_eq!(reloaded.providers.len(), 1);
+        assert_eq!(reloaded.retired_providers.len(), 1);
+        assert_eq!(reloaded.retired_providers[0].id, "old_p");
+        assert!(reloaded.retired_providers[0].api_key.is_empty());
     }
 }

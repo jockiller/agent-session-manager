@@ -564,6 +564,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![model],
         }
     }
@@ -701,6 +702,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: String::new(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new("flash", "Flash")],
         }];
         apply_doc(&document, home).unwrap();
@@ -727,6 +729,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-relay".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![model],
             }];
             document.set_settings(
@@ -902,6 +905,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![
                     ModelEntry {
                         efforts: Some(vec!["low".into(), "high".into()]),
@@ -929,6 +933,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry {
                     efforts: Some(vec!["low".into(), "high".into()]),
                     ..ModelEntry::new("claude-opus-4-6", "Not Anthropic")

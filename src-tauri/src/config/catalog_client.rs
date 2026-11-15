@@ -716,6 +716,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: key.into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new(model_id, "Flash")],
         }
     }
@@ -767,6 +768,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "secret-compat".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![model],
         };
         let url = check_compat(&provider).await.unwrap();

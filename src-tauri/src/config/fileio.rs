@@ -338,6 +338,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new("flash", "Flash")],
         }];
         document.set_settings(

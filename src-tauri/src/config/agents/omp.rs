@@ -395,6 +395,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-relay".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![
                 ModelEntry {
                     context: Some(200_000),
@@ -580,6 +581,7 @@ otherSetting: keep
                 catalog_url: String::new(),
                 api_key: "sk-relay".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry {
                     efforts: Some(vec!["low".into(), "high".into()]),
                     ..ModelEntry::new("opus", "Opus")
@@ -726,6 +728,7 @@ defaultThinkingLevel: low
             catalog_url: String::new(),
             api_key: "sk-google".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![
                 ModelEntry {
                     efforts: Some(vec![
@@ -850,6 +853,7 @@ defaultThinkingLevel: low
                 catalog_url: String::new(),
                 api_key: "sk".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry {
                     efforts: Some(vec!["low".into(), "medium".into(), "high".into()]),
                     ..ModelEntry::new(model_id, model_id)
@@ -887,6 +891,7 @@ defaultThinkingLevel: low
             catalog_url: String::new(),
             api_key: "sk".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![
                 ModelEntry {
                     efforts: Some(vec!["low".into(), "high".into()]),

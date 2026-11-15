@@ -32,6 +32,27 @@ import {
   deriveModelName,
 } from "./document";
 
+function toRetiredProvider(provider: Provider): Provider {
+  return {
+    ...cloneDoc(provider),
+    apiKey: "",
+    catalogURL: "",
+    enabled: true,
+  };
+}
+
+function recordRetiredProvider(document: AppDocument, provider: Provider): void {
+  const retired = toRetiredProvider(provider);
+  const list = [...(document.retiredProviders ?? [])].filter((item) => item.id !== retired.id);
+  list.push(retired);
+  document.retiredProviders = list;
+}
+
+function unretireProviderID(document: AppDocument, id: string): void {
+  if (!document.retiredProviders?.length) return;
+  document.retiredProviders = document.retiredProviders.filter((item) => item.id !== id);
+}
+
 export class ConfigStore {
   document = $state<AppDocument>(emptyDocument());
   baseline = $state<AppDocument>(emptyDocument());
@@ -209,8 +230,10 @@ export class ConfigStore {
     const next = cloneDoc(this.document);
     next.providers[index] = saved;
     if (trimmedID !== selectedProviderID) {
+      recordRetiredProvider(next, this.document.providers[index]);
       renameProviderRefs(next, selectedProviderID, trimmedID);
     }
+    unretireProviderID(next, trimmedID);
     if (deepEqual(next, this.document)) return false;
     this.document = next;
     this.selectedProviderID = trimmedID;
@@ -284,9 +307,11 @@ export class ConfigStore {
       api: "responses",
       catalogURL: "",
       apiKey: "",
+      enabled: true,
       models: [],
       compatBaseURL: "",
     });
+    unretireProviderID(next, id);
     this.document = next;
     this.selectedProviderID = id;
     this.status = t("cfg_added_remember", { id });
@@ -301,7 +326,9 @@ export class ConfigStore {
     delete drafts[selectedProviderID];
     this.providerDrafts = drafts;
     const next = cloneDoc(this.document);
-    const removed = next.providers[index].id;
+    const removedProvider = next.providers[index];
+    const removed = removedProvider.id;
+    recordRetiredProvider(next, removedProvider);
     next.providers.splice(index, 1);
     const prefix = `${removed}/`;
     for (const kind of AGENT_KINDS) {

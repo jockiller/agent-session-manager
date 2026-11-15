@@ -207,13 +207,16 @@
           {@const selected = store.selectedProviderID === provider.id}
           <button
             type="button"
-            class="w-full text-left px-2.5 py-1.5 rounded-lg transition cursor-pointer {selected
+            class="w-full text-left px-2.5 py-1.5 rounded-lg transition cursor-pointer {draft.enabled ? '' : 'opacity-60'} {selected
               ? 'bg-white text-slate-900 font-semibold shadow-2xs border border-slate-200/80'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'}"
             onclick={() => (store.selectedProviderID = provider.id)}
           >
             <span class="flex items-center gap-1.5">
               <span class="text-xs truncate">{draft.name || draft.id}</span>
+              {#if !draft.enabled}
+                <MetaPill text={t("cfg_disabled")} />
+              {/if}
               {#if store.isProviderDirty(provider.id)}
                 <span class="h-1.5 w-1.5 rounded-full bg-orange-500 shrink-0"></span>
               {/if}
@@ -253,7 +256,35 @@
       {@const provider = store.selectedProvider}
       <div class="flex-1 overflow-y-auto p-5 space-y-4">
         <ConfigCard>
-          <SectionLabel title={t("cfg_connection")} />
+          <div class="flex items-center justify-between gap-3">
+            <SectionLabel title={t("cfg_connection")} />
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="text-[11px] font-medium {provider.enabled ? 'text-slate-600' : 'text-amber-700'}">
+                {t("cfg_provider_enabled")}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={provider.enabled}
+                aria-label={t("cfg_provider_enabled")}
+                class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer {provider.enabled
+                  ? 'bg-sky-600'
+                  : 'bg-slate-300'}"
+                onclick={() => store.updateSelectedProvider((next) => { next.enabled = !next.enabled; })}
+              >
+                <span
+                  class="inline-block h-4 w-4 rounded-full bg-white shadow-2xs transition-transform {provider.enabled
+                    ? 'translate-x-[18px]'
+                    : 'translate-x-0.5'}"
+                ></span>
+              </button>
+            </div>
+          </div>
+          {#if !provider.enabled}
+            <p class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200/80 rounded-lg px-2.5 py-1.5">
+              {t("cfg_provider_disabled")}
+            </p>
+          {/if}
           <div class="grid grid-cols-2 gap-x-3 gap-y-2.5">
             <FieldLabel title={t("cfg_id")}>
               <input class={fieldClass} placeholder={t("cfg_id_placeholder")} value={provider.id} oninput={(e) => setProviderField("id", e.currentTarget.value)} />

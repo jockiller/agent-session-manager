@@ -52,6 +52,7 @@ export type Provider = {
   api: APIKind;
   catalogURL: string;
   apiKey: string;
+  enabled: boolean;
   models: ModelEntry[];
   compatBaseURL?: string;
 };
@@ -85,6 +86,7 @@ export type AgentSettings = {
 export type AppDocument = {
   version: number;
   providers: Provider[];
+  retiredProviders?: Provider[];
   library: Library;
   agents: Record<string, AgentSettings>;
   appliedAt: Record<string, string>;

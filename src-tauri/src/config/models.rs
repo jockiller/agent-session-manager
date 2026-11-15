@@ -409,6 +409,8 @@ pub struct Provider {
         skip_serializing_if = "String::is_empty"
     )]
     pub compat_base_url: String,
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub enabled: bool,
     #[serde(default)]
     pub models: Vec<ModelEntry>,
 }
@@ -428,6 +430,7 @@ impl Provider {
             catalog_url: String::new(),
             api_key: String::new(),
             compat_base_url: String::new(),
+            enabled: true,
             models: Vec::new(),
         }
     }
@@ -631,6 +634,12 @@ pub struct AppDocument {
     pub version: i64,
     #[serde(default)]
     pub providers: Vec<Provider>,
+    #[serde(
+        rename = "retiredProviders",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub retired_providers: Vec<Provider>,
     #[serde(default)]
     pub library: Library,
     #[serde(default, deserialize_with = "known_agent_map")]
@@ -648,6 +657,7 @@ impl Default for AppDocument {
         Self {
             version: 1,
             providers: Vec::new(),
+            retired_providers: Vec::new(),
             library: Library::default(),
             agents: BTreeMap::new(),
             applied_at: BTreeMap::new(),
@@ -674,6 +684,7 @@ impl AppDocument {
     pub fn catalog_refs(&self) -> Vec<String> {
         self.providers
             .iter()
+            .filter(|provider| provider.enabled)
             .flat_map(|provider| {
                 provider
                     .models
@@ -689,12 +700,14 @@ impl AppDocument {
         let multi = self
             .providers
             .iter()
-            .filter(|provider| provider.exportable_to(kind) && !provider.models.is_empty())
+            .filter(|provider| {
+                provider.enabled && provider.exportable_to(kind) && !provider.models.is_empty()
+            })
             .count()
             > 1;
         let mut choices = Vec::new();
         for provider in &self.providers {
-            if !provider.exportable_to(kind) {
+            if !provider.enabled || !provider.exportable_to(kind) {
                 continue;
             }
             let provider_name = if provider.name.is_empty() {
@@ -865,6 +878,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: String::new(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("gemini-flash", "Flash")],
             },
             Provider {
@@ -875,6 +889,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: String::new(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m1", "M1")],
             },
         ];
@@ -924,6 +939,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: String::new(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![
                 ModelEntry::new("flash", "Flash"),
                 ModelEntry::new("pro", "Pro"),

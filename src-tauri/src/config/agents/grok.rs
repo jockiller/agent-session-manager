@@ -418,6 +418,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-a".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m1", "M1")],
             },
             Provider {
@@ -428,6 +429,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-b".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m2", "M2")],
             },
         ];
@@ -458,6 +460,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![model],
         }];
         document.set_settings(
@@ -548,6 +551,7 @@ api_backend = "chat_completions"
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new("flash", "Flash")],
         }];
         apply_grok(&document, home);
@@ -576,6 +580,7 @@ api_backend = "chat_completions"
                 catalog_url: String::new(),
                 api_key: "sk-relay".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![model],
             }];
             document.set_settings(
@@ -659,6 +664,7 @@ enabled = true
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![model],
         }];
         document.library.mcp = vec![MCPServer {

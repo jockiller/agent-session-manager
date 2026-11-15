@@ -372,6 +372,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-a".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m1", "M1")],
             },
             Provider {
@@ -382,6 +383,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-b".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m2", "M2")],
             },
         ];
@@ -418,6 +420,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![flash, grok],
         }];
         document.library.instructions = "keep diffs small".into();
@@ -535,6 +538,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![flash, grok],
         }];
         let mut settings = AgentSettings {
@@ -600,6 +604,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry {
                 efforts: Some(vec!["low".into(), "medium".into(), "high".into()]),
                 ..ModelEntry::new("claude-opus-5-5", "Claude Opus 5.5")
@@ -681,6 +686,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry {
                 efforts: Some(vec![
                     "minimal".into(),
@@ -792,6 +798,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new("flash", "Flash")],
         }];
         apply_to(&document, home);
@@ -817,6 +824,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new("sonnet", "Sonnet")],
         }];
         apply_to(&document, home);
@@ -856,6 +864,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-relay".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry {
                     efforts: Some(vec!["low".into(), "high".into()]),
                     ..ModelEntry::new("opus", "Opus")
@@ -954,6 +963,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new("flash", "Flash")],
         }];
         document.library.instructions = "keep diffs small".into();
@@ -1017,6 +1027,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry::new("flash", "Flash")],
         }];
         let outcome = apply_to(&document, home);
@@ -1069,6 +1080,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![
                 image,
                 ModelEntry::new("flash", "Flash"),
@@ -1146,6 +1158,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry {
                 cost: Some(crate::config::models::ModelCost {
                     input: Some(0.75),
@@ -1205,6 +1218,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: "sk-test".into(),
             compat_base_url: String::new(),
+            enabled: true,
             models: vec![ModelEntry {
                 cost: Some(crate::config::models::ModelCost {
                     input: None,

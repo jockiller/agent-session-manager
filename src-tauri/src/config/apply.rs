@@ -220,8 +220,15 @@ pub fn apply_request(document: &AppDocument, kind: AgentKind) -> ApplyRequest {
     let catalog = document.catalog_refs();
     let mut filtered = Vec::new();
     let mut retired = Vec::new();
+    let mut seen_ids = HashSet::new();
     for provider in &document.providers {
+        seen_ids.insert(provider.id.clone());
         let mut copy = provider.clone();
+        if !provider.enabled {
+            copy.models = display_name::apply(&provider.models);
+            retired.push(copy);
+            continue;
+        }
         let models: Vec<ModelEntry> = provider
             .models
             .iter()
@@ -245,6 +252,14 @@ pub fn apply_request(document: &AppDocument, kind: AgentKind) -> ApplyRequest {
             filtered.push(copy);
             continue;
         }
+        retired.push(copy);
+    }
+    for provider in &document.retired_providers {
+        if !seen_ids.insert(provider.id.clone()) {
+            continue;
+        }
+        let mut copy = provider.clone();
+        copy.models = display_name::apply(&provider.models);
         retired.push(copy);
     }
     let mcp = document
@@ -378,6 +393,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-a".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m1", "M1")],
             },
             Provider {
@@ -388,6 +404,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-b".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m2", "M2")],
             },
         ];
@@ -437,6 +454,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-google".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![flash, nothink, only_xhigh],
             },
             Provider {
@@ -447,6 +465,7 @@ mod tests {
                 catalog_url: String::new(),
                 api_key: "sk-a".into(),
                 compat_base_url: String::new(),
+                enabled: true,
                 models: vec![ModelEntry::new("m1", "M1")],
             },
         ];
@@ -665,5 +684,59 @@ api_backend = "chat_completions"
         .unwrap();
         assert!(second.written.is_empty());
         assert_eq!(std::fs::read_to_string(&paths.config).unwrap(), text);
+    }
+
+    #[test]
+    fn apply_retires_disabled_and_deleted_providers_on_export() {
+        let dir = TestDir::new("disabled_and_retired");
+        let home = dir.path();
+        let paths = AgentPaths::live(AgentKind::Opencode, home, "", &HashMap::new());
+        std::fs::create_dir_all(paths.config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &paths.config,
+            r#"{
+  "providers": {
+    "a": { "npm": "@ai-sdk/openai", "options": { "baseURL": "https://a.example/v1" }, "models": { "m1": { "name": "M1" } } },
+    "disabled_p": { "npm": "@ai-sdk/openai", "options": { "baseURL": "https://dis.example/v1" }, "models": { "d1": { "name": "D1" } } },
+    "deleted_p": { "npm": "@ai-sdk/openai", "options": { "baseURL": "https://del.example/v1" }, "models": { "x1": { "name": "X1" } } },
+    "foreign": { "npm": "@ai-sdk/anthropic", "options": { "baseURL": "https://foreign.example/v1" }, "models": { "f1": { "name": "F1" } } }
+  },
+  "model": "disabled_p/d1"
+}"#,
+        )
+        .unwrap();
+
+        let mut document = AppDocument::default();
+        let mut active = Provider::new("a", "A", "https://a.example/v1");
+        active.api_key = "sk-a".into();
+        active.models = vec![ModelEntry::new("m1", "M1")];
+
+        let mut disabled = Provider::new("disabled_p", "Disabled", "https://dis.example/v1");
+        disabled.enabled = false;
+        disabled.models = vec![ModelEntry::new("d1", "D1")];
+
+        let mut deleted = Provider::new("deleted_p", "Deleted", "https://del.example/v1");
+        deleted.models = vec![ModelEntry::new("x1", "X1")];
+
+        document.providers = vec![active, disabled];
+        document.retired_providers = vec![deleted];
+        document.set_settings(
+            AgentSettings {
+                model: "a/m1".into(),
+                ..AgentSettings::default()
+            },
+            AgentKind::Opencode,
+        );
+
+        let backups = home.join("asm-backups");
+        apply(&document, AgentKind::Opencode, home, &HashMap::new(), &backups).unwrap();
+        let exported: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&paths.config).unwrap()).unwrap();
+        let providers = exported["providers"].as_object().unwrap();
+        assert!(providers.contains_key("a"));
+        assert!(providers.contains_key("foreign"));
+        assert!(!providers.contains_key("disabled_p"));
+        assert!(!providers.contains_key("deleted_p"));
+        assert_eq!(exported["model"], "a/m1");
     }
 }

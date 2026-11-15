@@ -363,6 +363,9 @@ export const translations: Record<Locale, Record<string, string>> = {
     cfg_compat_status: "Chat 兼容：{url}",
     cfg_compat_undetected: "未检测",
     cfg_compat_clear: "清除",
+    cfg_disabled: "已禁用",
+    cfg_provider_enabled: "启用该 Provider",
+    cfg_provider_disabled: "已禁用，不显示在 Agent 配置中，保存 Agent 时移除",
   },
 
   "zh-TW": {
@@ -867,6 +870,9 @@ export const translations: Record<Locale, Record<string, string>> = {
     cfg_compat_status: "Chat-compatible: {url}",
     cfg_compat_undetected: "Not checked",
     cfg_compat_clear: "Clear",
+    cfg_disabled: "Disabled",
+    cfg_provider_enabled: "Enable provider",
+    cfg_provider_disabled: "Disabled: hidden from Agents and removed on save",
   },
 
   "ja": {

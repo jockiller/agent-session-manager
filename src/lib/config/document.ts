@@ -130,6 +130,7 @@ export function emptyDocument(): AppDocument {
   return {
     version: 1,
     providers: [],
+    retiredProviders: [],
     library: { instructions: "", mcp: [] },
     agents,
     appliedAt: {},
@@ -205,6 +206,7 @@ export function normalizeProvider(raw: unknown): Provider {
     api: isAPIKind(apiRaw) ? apiRaw : "responses",
     catalogURL: asString(row.catalogURL),
     apiKey: asString(row.apiKey),
+    enabled: typeof row.enabled === "boolean" ? row.enabled : true,
     models: Array.isArray(row.models) ? row.models.map(normalizeModel) : [],
     compatBaseURL: asString(row.compatBaseURL),
   };
@@ -262,6 +264,7 @@ export function normalizeDocument(raw: unknown): AppDocument {
   return {
     version: version ?? 1,
     providers: Array.isArray(row.providers) ? row.providers.map(normalizeProvider) : [],
+    retiredProviders: Array.isArray(row.retiredProviders) ? row.retiredProviders.map(normalizeProvider) : [],
     library: {
       instructions: asString(asRecord(row.library).instructions),
       mcp: Array.isArray(asRecord(row.library).mcp)
@@ -305,7 +308,9 @@ export function modelRef(providerId: string, modelId: string): string {
 }
 
 export function catalogRefs(document: AppDocument): string[] {
-  return document.providers.flatMap((provider) => provider.models.map((model) => modelRef(provider.id, model.id)));
+  return document.providers
+    .filter((provider) => provider.enabled)
+    .flatMap((provider) => provider.models.map((model) => modelRef(provider.id, model.id)));
 }
 
 export function isPicked(settings: AgentSettings, ref: string, _catalog: string[]): boolean {
@@ -341,7 +346,7 @@ export function pickedChoices(document: AppDocument, kind: AgentKind): ModelChoi
   const settings = settingsFor(document, kind);
   const catalog = catalogRefs(document);
   const supported = document.providers.filter(
-    (provider) => provider.models.length > 0 && providerExportMode(kind, provider) !== "skip",
+    (provider) => provider.enabled && provider.models.length > 0 && providerExportMode(kind, provider) !== "skip",
   );
   const multi = supported.length > 1;
   const choices: ModelChoice[] = [];

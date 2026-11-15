@@ -297,6 +297,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: String::new(),
             compat_base_url: String::new(),
+            enabled: true,
             models: Vec::new(),
         };
         let urls = incoming_urls(&[provider]);
@@ -332,6 +333,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: String::new(),
             compat_base_url: String::new(),
+            enabled: true,
             models: Vec::new(),
         };
         let urls = incoming_urls(&[provider]);
@@ -346,6 +348,7 @@ mod tests {
             catalog_url: String::new(),
             api_key: String::new(),
             compat_base_url: String::new(),
+            enabled: true,
             models: Vec::new(),
         };
         let urls = incoming_urls(&[pasted]);
