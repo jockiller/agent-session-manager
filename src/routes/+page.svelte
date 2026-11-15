@@ -10,29 +10,7 @@
   import ConfigView from "$lib/components/config/ConfigView.svelte";
   import { Star, Download, Trash2, X, Globe, Info } from "@lucide/svelte";
   import { parseLocalDateStart, parseLocalDateEnd, normalizeTimestamp } from "$lib/utils";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { t, i18n, supportedLocales, type Locale } from "$lib/i18n";
-
-  async function handleTitlebarMouseDown(e: MouseEvent) {
-    if (e.buttons === 1) {
-      if ((e.target as HTMLElement | null)?.closest("button, select, input, a")) return;
-      try {
-        const win = getCurrentWindow();
-        await win.startDragging();
-      } catch (err) {
-        console.warn("startDragging error:", err);
-      }
-    }
-  }
-
-  async function handleTitlebarDblClick() {
-    try {
-      const win = getCurrentWindow();
-      await win.toggleMaximize();
-    } catch (err) {
-      console.warn("toggleMaximize error:", err);
-    }
-  }
 
   let sessions = $state<SessionSummary[]>([]);
   let stats = $state<GlobalStats | null>(null);
@@ -434,21 +412,19 @@
   <!-- Top Drag Titlebar (Seamless with App Body, OS-adaptive) -->
   <div
     class="h-8 w-full shrink-0 flex items-center justify-between select-none bg-slate-100/80 border-b border-slate-200/90 {isMac ? 'pl-20' : 'pl-4'} pr-4 text-xs cursor-default"
-    style="-webkit-app-region: drag; -webkit-user-select: none;"
-    data-tauri-drag-region
-    onmousedown={handleTitlebarMouseDown}
-    ondblclick={handleTitlebarDblClick}
+    style="-webkit-user-select: none;"
+    data-tauri-drag-region="deep"
     role="toolbar"
     tabindex="-1"
   >
     <div class="flex items-center gap-3 min-w-0">
-      <div class="flex items-center gap-2 pointer-events-none" data-tauri-drag-region>
+      <div class="flex items-center gap-2 min-w-0 pointer-events-none">
         <span class="text-xs font-semibold text-slate-700 tracking-tight">{t("app_title")}</span>
         <span class="text-[10px] text-slate-400 font-normal truncate">{t("app_subtitle")}</span>
       </div>
       <div
         class="flex items-center rounded-md bg-slate-200/70 p-0.5 border border-slate-300/50 shrink-0"
-        style="-webkit-app-region: no-drag; pointer-events: auto;"
+        data-tauri-drag-region="false"
       >
         <button
           type="button"
@@ -470,11 +446,11 @@
         </button>
       </div>
     </div>
-    <div class="flex items-center gap-2.5 text-[11px] text-slate-500 font-mono" data-tauri-drag-region>
+    <div class="flex items-center gap-2.5 text-[11px] text-slate-500 font-mono">
       <!-- Native Language Selector (Interactive without blocking window drag) -->
       <div
         class="relative flex items-center group shrink-0"
-        style="-webkit-app-region: no-drag; pointer-events: auto;"
+        data-tauri-drag-region="false"
       >
         <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-md hover:bg-slate-200/80 text-slate-600 hover:text-slate-900 transition cursor-pointer text-[11px] font-sans font-medium border border-transparent hover:border-slate-300/60 shadow-2xs">
           <Globe class="h-3 w-3 text-slate-500 group-hover:text-sky-600 transition" />
@@ -497,7 +473,7 @@
         type="button"
         onclick={() => (showAboutModal = true)}
         class="flex items-center justify-center p-1 rounded-md hover:bg-slate-200/80 text-slate-500 hover:text-slate-900 transition cursor-pointer border border-transparent hover:border-slate-300/60 shadow-2xs shrink-0"
-        style="-webkit-app-region: no-drag; pointer-events: auto;"
+        data-tauri-drag-region="false"
         title={t("about_app")}
       >
         <Info class="h-3.5 w-3.5 text-slate-500 hover:text-sky-600 transition" />
