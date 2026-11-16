@@ -10,6 +10,15 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-11-16
+
+### Added
+
+- **Antigravity archived session detection**: parse the archive flag (`field 15 -> field 4 == 1`)
+  from `conversation_summaries.raw_summary` with a fallback to the protobuf summary store
+  (`agyhub_summaries_proto.pb` / `jetbox_summaries_proto.pb`), and preserve archived status when
+  deduplicating across Antigravity flavors so Antigravity sessions appear in the Archived filter.
+
 ## [0.2.8] - 2026-11-15
 
 ### Added
