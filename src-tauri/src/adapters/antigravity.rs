@@ -258,6 +258,7 @@ impl AntigravityAdapter {
             winner.is_subagent = loser.is_subagent;
         }
         winner.is_running = winner.is_running || loser.is_running;
+        winner.is_archived = winner.is_archived || loser.is_archived;
     }
 
     fn path_size(p: &Path) -> u64 {
@@ -399,6 +400,50 @@ fn pb_record_id(buf: &[u8], record: &PbField) -> Option<String> {
     Some(String::from_utf8_lossy(&buf[id.value_start..id.value_end]).to_string())
 }
 
+/// Checks a serialized summary payload for Antigravity's archive flag: embedded field 15
+/// containing varint field 4 with value 1.
+fn pb_summary_is_archived(buf: &[u8]) -> bool {
+    let Some(fields) = pb_fields(buf, 0, buf.len()) else {
+        return false;
+    };
+    let Some(meta) = fields.iter().find(|f| f.number == 15 && f.wire == 2) else {
+        return false;
+    };
+    let Some(inner) = pb_fields(buf, meta.value_start, meta.value_end) else {
+        return false;
+    };
+    inner.iter().any(|f| {
+        f.number == 4
+            && f.wire == 0
+            && pb_varint(buf, f.value_start, f.value_end).map_or(false, |(v, _)| v == 1)
+    })
+}
+
+fn pb_store_archived_ids(store: &Path) -> HashSet<String> {
+    let mut archived = HashSet::new();
+    let Ok(buf) = fs::read(store) else {
+        return archived;
+    };
+    let Some(fields) = pb_fields(&buf, 0, buf.len()) else {
+        return archived;
+    };
+    for record in fields.iter().filter(|f| f.number == 1 && f.wire == 2) {
+        let Some(inner) = pb_fields(&buf, record.value_start, record.value_end) else {
+            continue;
+        };
+        let Some(id) = inner.iter().find(|f| f.number == 1 && f.wire == 2) else {
+            continue;
+        };
+        let Some(payload) = inner.iter().find(|f| f.number == 2 && f.wire == 2) else {
+            continue;
+        };
+        if pb_summary_is_archived(&buf[payload.value_start..payload.value_end]) {
+            archived.insert(String::from_utf8_lossy(&buf[id.value_start..id.value_end]).to_string());
+        }
+    }
+    archived
+}
+
 /// Drops the summary records of `remove` from the store, copying every other record
 /// byte-for-byte. Returns the new contents and how many records were dropped.
 fn pb_drop_records(buf: &[u8], remove: &HashSet<&str>) -> Option<(Vec<u8>, usize)> {
@@ -430,6 +475,7 @@ struct SummaryDbRow {
     parent_id: Option<String>,
     is_sub: bool,
     status: String,
+    is_archived: Option<bool>,
 }
 
 impl AgentAdapter for AntigravityAdapter {
@@ -456,12 +502,15 @@ impl AgentAdapter for AntigravityAdapter {
                 continue;
             }
 
-            // 1. Read SQLite summaries DB if available
+            // 1. Read SQLite summaries DB if available and fallback archive flags from the proto store
+            let store_archived = Self::summary_store(&fdir)
+                .map(|p| pb_store_archived_ids(&p))
+                .unwrap_or_default();
             let sum_db = fdir.join("conversation_summaries.db");
             let mut db_meta: HashMap<String, SummaryDbRow> = HashMap::new();
             if sum_db.exists() {
                 if let Ok(conn) = Connection::open_with_flags(&sum_db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
-                    let query = "SELECT conversation_id, title, preview, workspace_uris, project_id, step_count, last_modified_time, parent_conversation_id, nesting_depth, status FROM conversation_summaries";
+                    let query = "SELECT conversation_id, title, preview, workspace_uris, project_id, step_count, last_modified_time, parent_conversation_id, nesting_depth, status, raw_summary FROM conversation_summaries";
                     if let Ok(mut stmt) = conn.prepare(query) {
                         let rows = stmt.query_map([], |row| {
                             let cid: String = row.get(0)?;
@@ -474,13 +523,14 @@ impl AgentAdapter for AntigravityAdapter {
                             let parent_id: Option<String> = row.get(7)?;
                             let nesting: Option<i32> = row.get(8)?;
                             let status: Option<String> = row.get(9)?;
+                            let raw_summary: Option<Vec<u8>> = row.get(10)?;
 
-                            Ok((cid, t1, t2, ws_raw, pid, steps.unwrap_or(0), ltime, parent_id, nesting.unwrap_or(0), status.unwrap_or_default()))
+                            Ok((cid, t1, t2, ws_raw, pid, steps.unwrap_or(0), ltime, parent_id, nesting.unwrap_or(0), status.unwrap_or_default(), raw_summary))
                         });
 
                         if let Ok(mapped) = rows {
                             for item in mapped.flatten() {
-                                let (cid, t1, t2, ws_raw, pid, steps, ltime, parent_id, nesting, status) = item;
+                                let (cid, t1, t2, ws_raw, pid, steps, ltime, parent_id, nesting, status, raw_summary) = item;
 
                                 // Extract title properly from title or preview
                                 let raw_title = match t1 {
@@ -517,6 +567,11 @@ impl AgentAdapter for AntigravityAdapter {
                                 let clean_parent = parent_id.filter(|p| !p.trim().is_empty());
                                 let is_sub = clean_parent.is_some() || nesting > 0;
 
+                                let is_archived = raw_summary
+                                    .as_deref()
+                                    .filter(|b| !b.is_empty())
+                                    .map(pb_summary_is_archived);
+
                                 db_meta.insert(cid.clone(), SummaryDbRow {
                                     title,
                                     preview: Self::clean_title(&t2.unwrap_or_default()),
@@ -526,6 +581,7 @@ impl AgentAdapter for AntigravityAdapter {
                                     parent_id: clean_parent,
                                     is_sub,
                                     status,
+                                    is_archived,
                                 });
                             }
                         }
@@ -583,6 +639,7 @@ impl AgentAdapter for AntigravityAdapter {
                 let mut parent_id = None;
                 let mut is_subagent = false;
                 let mut status_running = false;
+                let mut is_archived = store_archived.contains(&sid);
                 let mut first_prompt = String::new();
 
                 if let Some(row) = db_meta.get(&sid) {
@@ -593,6 +650,9 @@ impl AgentAdapter for AntigravityAdapter {
                     parent_id = row.parent_id.clone();
                     is_subagent = row.is_sub;
                     status_running = row.status == "CASCADE_RUN_STATUS_RUNNING";
+                    if let Some(archived) = row.is_archived {
+                        is_archived = archived;
+                    }
                     // DB-only sessions have no transcript; preview/title is the first user prompt
                     if first_prompt.is_empty() {
                         let raw_prompt = if title.is_empty() { row.preview.clone() } else { row.title.clone() };
@@ -691,7 +751,7 @@ impl AgentAdapter for AntigravityAdapter {
                     is_subagent,
                     parent_id,
                     is_running,
-                    is_archived: false,
+                    is_archived,
                     has_transcript,
                 };
 
@@ -1120,5 +1180,69 @@ mod tests {
         let app_session = sessions.iter().find(|s| s.id == app_sid).unwrap();
         assert_eq!(app_session.flavor, "agy-app");
         assert!(app_session.has_transcript);
+    }
+
+    fn summary_blob(archived: Option<u64>) -> Vec<u8> {
+        let mut inner = Vec::new();
+        // field 1 (string title) inside field 15
+        inner.extend_from_slice(&[0x0A, 0x04, b't', b'e', b's', b't']);
+        if let Some(flag) = archived {
+            // field 4 (varint) = flag
+            inner.extend_from_slice(&[0x20, flag as u8]);
+        }
+        let mut outer = Vec::new();
+        // field 15 (wire type 2 = length-delimited): tag = (15 << 3) | 2 = 0x7A
+        outer.push(0x7A);
+        outer.push(inner.len() as u8);
+        outer.extend_from_slice(&inner);
+        outer
+    }
+
+    #[test]
+    fn test_scan_sessions_detects_archived_from_raw_summary_and_store_fallback() {
+        let home = TempHome::new("archived");
+        let app_dir = home.0.join("antigravity");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        let arch_db_sid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let active_db_sid = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        let store_only_sid = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+        let db_path = app_dir.join("conversation_summaries.db");
+        write_db(&db_path, &[arch_db_sid, active_db_sid, store_only_sid]);
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "UPDATE conversation_summaries SET raw_summary = ?1 WHERE conversation_id = ?2",
+            rusqlite::params![summary_blob(Some(1)), arch_db_sid],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE conversation_summaries SET raw_summary = ?1 WHERE conversation_id = ?2",
+            rusqlite::params![summary_blob(Some(0)), active_db_sid],
+        )
+        .unwrap();
+        drop(conn);
+
+        // Fallback to agyhub_summaries_proto.pb when DB row has raw_summary = NULL
+        // and ensure an unarchived DB row (Some(false)) is not overridden by a stale proto store.
+        let store_bytes = store_bytes(&[
+            (store_only_sid, &summary_blob(Some(1))),
+            (active_db_sid, &summary_blob(Some(1))),
+        ]);
+        fs::write(app_dir.join("agyhub_summaries_proto.pb"), store_bytes).unwrap();
+
+        // Also test cross-flavor merge keeps is_archived = true
+        write_db(&home.cli().join("conversation_summaries.db"), &[arch_db_sid]);
+
+        let adapter = AntigravityAdapter::with_home(home.0.clone());
+        let sessions = adapter.scan_sessions();
+
+        let arch = sessions.iter().find(|s| s.id == arch_db_sid).unwrap();
+        let active = sessions.iter().find(|s| s.id == active_db_sid).unwrap();
+        let store_arch = sessions.iter().find(|s| s.id == store_only_sid).unwrap();
+
+        assert!(arch.is_archived, "raw_summary field 15.4 == 1 marks archived");
+        assert!(!active.is_archived, "raw_summary field 15.4 == 0 overrides stale proto store");
+        assert!(store_arch.is_archived, "proto store fallback marks archived when raw_summary is NULL");
     }
 }
