@@ -15,6 +15,7 @@ struct Spec {
     bin_env_keys: &'static [&'static str],
     home_env_keys: &'static [&'static str],
     home_directories: &'static [&'static str],
+    home_files: &'static [&'static str],
     app_names: &'static [&'static str],
 }
 
@@ -55,6 +56,7 @@ impl AgentDetector {
         self.command_exists(spec.binaries, spec.bin_env_keys)
             || self.home_exists(spec.home_env_keys)
             || self.directories_exist(spec.home_directories)
+            || self.files_exist(spec.home_files)
             || self.app_exists(spec.app_names)
     }
 
@@ -118,6 +120,15 @@ impl AgentDetector {
         false
     }
 
+    fn files_exist(&self, paths: &[&str]) -> bool {
+        for path in paths {
+            if self.home.join(path).is_file() {
+                return true;
+            }
+        }
+        false
+    }
+
     fn app_exists(&self, names: &[&str]) -> bool {
         let wanted: HashSet<String> = names.iter().map(|name| name.to_lowercase()).collect();
         if wanted.is_empty() {
@@ -158,6 +169,7 @@ fn spec(kind: AgentKind) -> Spec {
             bin_env_keys: &["OPENCODE_BIN"],
             home_env_keys: &["OPENCODE_INSTALL_DIR"],
             home_directories: &[],
+            home_files: &[],
             app_names: &["OpenCode"],
         },
         AgentKind::Dsh => Spec {
@@ -165,6 +177,7 @@ fn spec(kind: AgentKind) -> Spec {
             bin_env_keys: &["DSH_BIN"],
             home_env_keys: &["DSH_HOME"],
             home_directories: &[],
+            home_files: &[],
             app_names: &["DSH"],
         },
         AgentKind::Zcode => Spec {
@@ -172,6 +185,7 @@ fn spec(kind: AgentKind) -> Spec {
             bin_env_keys: &["ZCODE_BIN"],
             home_env_keys: &["ZCODE_HOME"],
             home_directories: &[],
+            home_files: &[],
             app_names: &["ZCode"],
         },
         AgentKind::Grok => Spec {
@@ -179,6 +193,7 @@ fn spec(kind: AgentKind) -> Spec {
             bin_env_keys: &["GROK_BIN"],
             home_env_keys: &["GROK_HOME"],
             home_directories: &[],
+            home_files: &[],
             app_names: &["Grok"],
         },
         AgentKind::Pi => Spec {
@@ -186,6 +201,7 @@ fn spec(kind: AgentKind) -> Spec {
             bin_env_keys: &["PI_BIN"],
             home_env_keys: &["PI_CODING_AGENT_DIR"],
             home_directories: &[".pi/agent"],
+            home_files: &[],
             app_names: &[],
         },
         AgentKind::Omp => Spec {
@@ -193,6 +209,60 @@ fn spec(kind: AgentKind) -> Spec {
             bin_env_keys: &["OMP_BIN"],
             home_env_keys: &["OMP_AGENT_DIR"],
             home_directories: &[".omp/agent"],
+            home_files: &[],
+            app_names: &[],
+        },
+        AgentKind::Antigravity => Spec {
+            binaries: &["agy"],
+            bin_env_keys: &[],
+            home_env_keys: &[],
+            home_directories: &[
+                ".gemini/antigravity",
+                ".gemini/antigravity-cli",
+                ".gemini/antigravity-ide",
+                ".gemini/config",
+            ],
+            home_files: &[],
+            app_names: &["Antigravity"],
+        },
+        AgentKind::Claude => Spec {
+            binaries: &["claude"],
+            bin_env_keys: &[],
+            home_env_keys: &["CLAUDE_CONFIG_DIR"],
+            home_directories: &[".claude"],
+            home_files: &[],
+            app_names: &["Claude"],
+        },
+        AgentKind::Codex => Spec {
+            binaries: &["codex"],
+            bin_env_keys: &[],
+            home_env_keys: &["CODEX_HOME"],
+            home_directories: &[".codex"],
+            home_files: &[],
+            app_names: &["Codex"],
+        },
+        AgentKind::Gemini => Spec {
+            binaries: &["gemini"],
+            bin_env_keys: &[],
+            home_env_keys: &["GEMINI_CLI_HOME"],
+            home_directories: &[],
+            home_files: &[".gemini/settings.json", ".gemini/GEMINI.md"],
+            app_names: &[],
+        },
+        AgentKind::Cursor => Spec {
+            binaries: &["cursor"],
+            bin_env_keys: &[],
+            home_env_keys: &[],
+            home_directories: &[".cursor"],
+            home_files: &[],
+            app_names: &["Cursor"],
+        },
+        AgentKind::Qwen => Spec {
+            binaries: &["qwen"],
+            bin_env_keys: &[],
+            home_env_keys: &["QWEN_HOME"],
+            home_directories: &[".qwen"],
+            home_files: &[],
             app_names: &[],
         },
     }
@@ -290,7 +360,20 @@ mod tests {
         assert!(!detector.is_installed(AgentKind::Grok));
         assert_eq!(
             kinds(&detector.ordered()),
-            ["opencode", "dsh", "zcode", "grok", "pi", "omp"]
+            [
+                "opencode",
+                "dsh",
+                "zcode",
+                "grok",
+                "pi",
+                "omp",
+                "antigravity",
+                "claude",
+                "codex",
+                "gemini",
+                "cursor",
+                "qwen"
+            ]
         );
     }
 
@@ -338,7 +421,20 @@ mod tests {
         assert!(!detector.is_installed(AgentKind::Opencode));
         assert_eq!(
             kinds(&detector.ordered()),
-            ["dsh", "grok", "opencode", "zcode", "pi", "omp"]
+            [
+                "dsh",
+                "grok",
+                "opencode",
+                "zcode",
+                "pi",
+                "omp",
+                "antigravity",
+                "claude",
+                "codex",
+                "gemini",
+                "cursor",
+                "qwen"
+            ]
         );
     }
 
@@ -360,5 +456,23 @@ mod tests {
             kinds(&detector.ordered()),
             AgentKind::ALL.iter().map(|kind| kind.raw()).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn detector_distinguishes_antigravity_and_gemini_cli() {
+        let home = TestDir::new("detector_agy_gemini");
+        std::fs::create_dir_all(home.path().join(".gemini/config")).unwrap();
+
+        let detector = AgentDetector::new(
+            HashMap::from([("PATH".to_string(), String::new())]),
+            home.path().to_path_buf(),
+            Some(vec![home.path().join("Applications")]),
+            Some(Vec::new()),
+        );
+        assert!(detector.is_installed(AgentKind::Antigravity));
+        assert!(!detector.is_installed(AgentKind::Gemini));
+
+        std::fs::write(home.path().join(".gemini/settings.json"), "{}").unwrap();
+        assert!(detector.is_installed(AgentKind::Gemini));
     }
 }

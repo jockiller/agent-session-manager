@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::display_name;
+use super::instructions::{InstructionBinding, InstructionPreset, InstructionsState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -13,16 +14,37 @@ pub enum AgentKind {
     Grok,
     Pi,
     Omp,
+    Antigravity,
+    Claude,
+    Codex,
+    Gemini,
+    Cursor,
+    Qwen,
 }
 
 impl AgentKind {
-    pub const ALL: [AgentKind; 6] = [
+    pub const PROVIDER_AGENTS: [AgentKind; 6] = [
         AgentKind::Opencode,
         AgentKind::Dsh,
         AgentKind::Zcode,
         AgentKind::Grok,
         AgentKind::Pi,
         AgentKind::Omp,
+    ];
+
+    pub const ALL: [AgentKind; 12] = [
+        AgentKind::Opencode,
+        AgentKind::Dsh,
+        AgentKind::Zcode,
+        AgentKind::Grok,
+        AgentKind::Pi,
+        AgentKind::Omp,
+        AgentKind::Antigravity,
+        AgentKind::Claude,
+        AgentKind::Codex,
+        AgentKind::Gemini,
+        AgentKind::Cursor,
+        AgentKind::Qwen,
     ];
 
     pub fn from_raw(raw: &str) -> Option<Self> {
@@ -33,6 +55,12 @@ impl AgentKind {
             "grok" => Some(Self::Grok),
             "pi" => Some(Self::Pi),
             "omp" => Some(Self::Omp),
+            "antigravity" => Some(Self::Antigravity),
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            "gemini" => Some(Self::Gemini),
+            "cursor" => Some(Self::Cursor),
+            "qwen" => Some(Self::Qwen),
             _ => None,
         }
     }
@@ -45,6 +73,12 @@ impl AgentKind {
             Self::Grok => "grok",
             Self::Pi => "pi",
             Self::Omp => "omp",
+            Self::Antigravity => "antigravity",
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Gemini => "gemini",
+            Self::Cursor => "cursor",
+            Self::Qwen => "qwen",
         }
     }
 
@@ -56,6 +90,37 @@ impl AgentKind {
             Self::Grok => "Grok",
             Self::Pi => "Pi",
             Self::Omp => "omp",
+            Self::Antigravity => "Antigravity",
+            Self::Claude => "Claude Code",
+            Self::Codex => "Codex",
+            Self::Gemini => "Gemini CLI",
+            Self::Cursor => "Cursor",
+            Self::Qwen => "Qwen Code",
+        }
+    }
+
+    pub fn supports_providers(self) -> bool {
+        matches!(
+            self,
+            Self::Opencode | Self::Dsh | Self::Zcode | Self::Grok | Self::Pi | Self::Omp
+        )
+    }
+
+    pub fn supports_mcp(self) -> bool {
+        true
+    }
+
+    pub fn supports_instructions(self) -> bool {
+        !matches!(self, Self::Cursor)
+    }
+
+    pub fn instruction_file_name(self) -> Option<&'static str> {
+        match self {
+            Self::Claude => Some("CLAUDE.md"),
+            Self::Gemini => Some("GEMINI.md"),
+            Self::Qwen => Some("QWEN.md"),
+            Self::Cursor => None,
+            _ => Some("AGENTS.md"),
         }
     }
 
@@ -74,10 +139,19 @@ impl AgentKind {
             Self::Grok => "~/.grok/config.toml".to_string(),
             Self::Pi => "~/.pi/agent/models.json".to_string(),
             Self::Omp => "~/.omp/agent/models.yml".to_string(),
+            Self::Antigravity => "~/.gemini/config/mcp_config.json · ~/.gemini/config/AGENTS.md".to_string(),
+            Self::Claude => "~/.claude.json · ~/.claude/CLAUDE.md".to_string(),
+            Self::Codex => "~/.codex/config.toml · ~/.codex/AGENTS.md".to_string(),
+            Self::Gemini => "~/.gemini/settings.json · ~/.gemini/GEMINI.md".to_string(),
+            Self::Cursor => "~/.cursor/mcp.json".to_string(),
+            Self::Qwen => "~/.qwen/settings.json · ~/.qwen/QWEN.md".to_string(),
         }
     }
 
     pub fn supports(self, api: APIKind) -> bool {
+        if !self.supports_providers() {
+            return false;
+        }
         match api {
             APIKind::Google => matches!(self, Self::Opencode | Self::Pi | Self::Omp),
             _ => true,
@@ -536,8 +610,11 @@ impl Default for AgentSettings {
 }
 
 impl AgentSettings {
-    pub fn defaults_for(_kind: AgentKind) -> Self {
-        Self::default()
+    pub fn defaults_for(kind: AgentKind) -> Self {
+        Self {
+            instruction_on: kind.supports_providers(),
+            ..Self::default()
+        }
     }
 
     pub fn is_picked(&self, r#ref: &str, _catalog: &[String]) -> bool {
@@ -642,6 +719,8 @@ pub struct AppDocument {
     pub retired_providers: Vec<Provider>,
     #[serde(default)]
     pub library: Library,
+    #[serde(default)]
+    pub instructions: InstructionsState,
     #[serde(default, deserialize_with = "known_agent_map")]
     pub agents: BTreeMap<String, AgentSettings>,
     #[serde(rename = "appliedAt", default, deserialize_with = "known_agent_map")]
@@ -659,6 +738,7 @@ impl Default for AppDocument {
             providers: Vec::new(),
             retired_providers: Vec::new(),
             library: Library::default(),
+            instructions: InstructionsState::default(),
             agents: BTreeMap::new(),
             applied_at: BTreeMap::new(),
         }
@@ -672,7 +752,61 @@ impl AppDocument {
                 .entry(kind.raw().to_string())
                 .or_insert_with(|| AgentSettings::defaults_for(kind));
         }
+        self.migrate_v1_instructions();
         self.pretty_model_names();
+    }
+
+    pub fn migrate_v1_instructions(&mut self) {
+        if self.instructions.presets.is_empty() && !self.library.instructions.trim().is_empty() {
+            self.instructions.presets.push(InstructionPreset {
+                id: "default".to_string(),
+                name: "Default".to_string(),
+                description: String::new(),
+                tags: Vec::new(),
+                content: self.library.instructions.clone(),
+                updated_at: String::new(),
+            });
+            for kind in AgentKind::PROVIDER_AGENTS {
+                let on = self
+                    .agents
+                    .get(kind.raw())
+                    .map(|s| s.instruction_on)
+                    .unwrap_or(true);
+                self.instructions.bindings.push(InstructionBinding {
+                    target_id: kind.raw().to_string(),
+                    enabled: on,
+                    preset_id: "default".to_string(),
+                    custom_path: None,
+                    last_synced_hash: None,
+                    last_synced_at: None,
+                });
+            }
+            if self.version < 2 {
+                self.version = 2;
+            }
+        }
+    }
+
+    pub fn resolved_instructions_for(&self, kind: AgentKind) -> (String, bool) {
+        if let Some(binding) = self
+            .instructions
+            .bindings
+            .iter()
+            .find(|b| b.target_id == kind.raw())
+        {
+            if let Some(preset) = self
+                .instructions
+                .presets
+                .iter()
+                .find(|p| p.id == binding.preset_id)
+            {
+                return (preset.content.clone(), binding.enabled);
+            }
+            if !binding.enabled {
+                return (String::new(), false);
+            }
+        }
+        (self.library.instructions.clone(), true)
     }
 
     pub fn pretty_model_names(&mut self) {
@@ -843,16 +977,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_kind_does_not_include_codex() {
+    fn agent_kind_provider_vs_mcp_only_capabilities() {
         assert_eq!(
-            AgentKind::ALL.map(|kind| kind.raw()),
+            AgentKind::PROVIDER_AGENTS.map(|kind| kind.raw()),
             ["opencode", "dsh", "zcode", "grok", "pi", "omp"]
         );
+        assert_eq!(
+            AgentKind::ALL.map(|kind| kind.raw()),
+            [
+                "opencode",
+                "dsh",
+                "zcode",
+                "grok",
+                "pi",
+                "omp",
+                "antigravity",
+                "claude",
+                "codex",
+                "gemini",
+                "cursor",
+                "qwen"
+            ]
+        );
+        for kind in AgentKind::PROVIDER_AGENTS {
+            assert!(kind.supports_providers());
+            assert!(kind.supports_mcp());
+            assert!(kind.supports_instructions());
+        }
+        for kind in [
+            AgentKind::Antigravity,
+            AgentKind::Claude,
+            AgentKind::Codex,
+            AgentKind::Gemini,
+            AgentKind::Qwen,
+        ] {
+            assert!(!kind.supports_providers());
+            assert!(kind.supports_mcp());
+            assert!(kind.supports_instructions());
+        }
+        assert!(!AgentKind::Cursor.supports_providers());
+        assert!(AgentKind::Cursor.supports_mcp());
+        assert!(!AgentKind::Cursor.supports_instructions());
     }
 
     #[test]
     fn agent_kind_supports_api_matrix() {
-        for kind in AgentKind::ALL {
+        for kind in AgentKind::PROVIDER_AGENTS {
             for api in APIKind::ALL {
                 let expected = !matches!(
                     (kind, api),
@@ -862,6 +1032,18 @@ mod tests {
                     )
                 );
                 assert_eq!(kind.supports(api), expected, "{kind:?} {api:?}");
+            }
+        }
+        for kind in [
+            AgentKind::Antigravity,
+            AgentKind::Claude,
+            AgentKind::Codex,
+            AgentKind::Gemini,
+            AgentKind::Cursor,
+            AgentKind::Qwen,
+        ] {
+            for api in APIKind::ALL {
+                assert!(!kind.supports(api), "{kind:?} {api:?}");
             }
         }
     }

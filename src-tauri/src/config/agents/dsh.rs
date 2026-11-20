@@ -42,17 +42,26 @@ pub fn apply(request: &ApplyRequest, paths: &AgentPaths, ctx: &mut ApplyContext<
         return Err(ApplyError::NotInstalled("DSH".into()));
     };
     if !dsh_root.exists() {
+        if !request.write_providers && request.mcp.is_empty() {
+            return Ok(());
+        }
         return Err(ApplyError::NotInstalled("DSH".into()));
     }
-    ctx.write_instructions(
-        request.kind,
-        &paths.instructions,
-        &request.instructions,
-        request.settings.instruction_on,
-    )?;
-    write_patch(request, &paths.config, ctx)?;
-    if let Some(env) = &paths.extra {
-        write_env(request, env, ctx)?;
+    if request.write_instructions {
+        ctx.write_instructions(
+            request.kind,
+            &paths.instructions,
+            &request.instructions,
+            request.settings.instruction_on,
+        )?;
+    }
+    if request.write_providers || request.write_mcp {
+        write_patch(request, &paths.config, ctx)?;
+    }
+    if request.write_providers {
+        if let Some(env) = &paths.extra {
+            write_env(request, env, ctx)?;
+        }
     }
     Ok(())
 }
@@ -60,17 +69,31 @@ pub fn apply(request: &ApplyRequest, paths: &AgentPaths, ctx: &mut ApplyContext<
 fn write_patch(request: &ApplyRequest, path: &Path, ctx: &mut ApplyContext<'_>) -> Result<(), ApplyError> {
     let existing = read_text(path);
     let mut items = split_top_level(&existing);
-    let leftover = leftover_providers(&items, request);
-    items.retain(|item| {
-        !is_plugin(item, "llm-pi-ai") && !is_default_model(item) && !is_our_mcp_insert(item)
-    });
-    items.insert(0, llm_pi_ai_item(request, &leftover));
-    if !request.default_bare_model_id().is_empty() {
-        items.insert(1, default_model_item(request));
+    if request.write_providers {
+        let leftover = leftover_providers(&items, request);
+        items.retain(|item| {
+            !is_plugin(item, "llm-pi-ai")
+                && !is_default_model(item)
+                && (!request.write_mcp || !is_our_mcp_insert(item))
+        });
+        items.insert(0, llm_pi_ai_item(request, &leftover));
+        if !request.default_bare_model_id().is_empty() {
+            items.insert(1, default_model_item(request));
+        }
+        if request.write_mcp {
+            items.extend(mcp_items(&request.mcp));
+        }
+    } else if request.write_mcp {
+        let had_our_mcp = items.iter().any(|item| is_our_mcp_insert(item));
+        let next_mcps = mcp_items(&request.mcp);
+        if next_mcps.is_empty() && !had_our_mcp {
+            return Ok(());
+        }
+        items.retain(|item| !is_our_mcp_insert(item));
+        items.extend(next_mcps);
     }
-    items.extend(mcp_items(&request.mcp));
     let mut next = items.join("\n");
-    if !next.ends_with('\n') {
+    if !next.is_empty() && !next.ends_with('\n') {
         next.push('\n');
     }
     ctx.session
@@ -372,6 +395,49 @@ fn is_our_mcp_insert(item: &str) -> bool {
     name == "dsh-mcp-client" && id.starts_with("mcp-")
 }
 
+pub(crate) fn scan_mcp(text: &str) -> Vec<MCPServer> {
+    let mut out = Vec::new();
+    for item in split_top_level(text) {
+        if !is_our_mcp_insert(&item) {
+            continue;
+        }
+        let mut server_name = String::new();
+        let mut command = String::new();
+        let mut args = Vec::new();
+        let mut in_args = false;
+        for line in item.lines() {
+            let trimmed = line.trim();
+            if trimmed == "args:" || trimmed == "args: []" {
+                in_args = trimmed == "args:";
+                continue;
+            }
+            if in_args {
+                if let Some(arg) = trimmed.strip_prefix("- ") {
+                    args.push(unquote_simple(arg.trim()));
+                    continue;
+                }
+                in_args = false;
+            }
+            if let Some(rest) = trimmed.strip_prefix("serverName:") {
+                server_name = unquote_simple(rest.trim());
+            } else if let Some(rest) = trimmed.strip_prefix("command:") {
+                command = unquote_simple(rest.trim());
+            }
+        }
+        if !server_name.is_empty() && !command.is_empty() {
+            out.push(MCPServer {
+                id: server_name,
+                transport: MCPTransport::Stdio,
+                command,
+                args,
+                url: String::new(),
+                env: std::collections::BTreeMap::new(),
+            });
+        }
+    }
+    out
+}
+
 struct ProviderSlice {
     id: String,
     url: String,
@@ -443,7 +509,7 @@ fn max_tokens(context: Option<i64>, output: Option<i64>) -> Option<i64> {
     Some(output.min(budget.max(1)))
 }
 
-fn sanitize_mcp(raw: &str) -> String {
+pub(crate) fn sanitize_mcp(raw: &str) -> String {
     raw.chars()
         .map(|character| {
             if character.is_alphabetic() || character.is_numeric() || character == '_' || character == '-'

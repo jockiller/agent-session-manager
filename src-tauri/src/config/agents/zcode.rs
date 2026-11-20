@@ -14,47 +14,62 @@ pub fn apply(
     ctx: &mut ApplyContext<'_>,
 ) -> Result<(), ApplyError> {
     let mut root = read_json_object(&paths.config);
-    let mut providers: BTreeMap<String, Value> =
-        super::json_object(root.get("provider")).into_iter().collect();
-    endpoint::prune_providers(&mut providers, &request.providers, &request.retired);
-    for provider in &request.providers {
-        let key = request.keys.get(&provider.id).cloned().unwrap_or_default();
-        providers.insert(provider.id.clone(), Value::Object(zcode_provider(provider, &key)));
-    }
-    let alive: HashSet<String> = providers.keys().cloned().collect();
-    root.insert("provider".into(), Value::Object(providers.into_iter().collect()));
+    let mut alive: Option<HashSet<String>> = None;
+    let mut removed_mcp = false;
 
-    let model = request.default_model_base();
-    if !model.is_empty() {
-        root.insert("model".into(), Value::String(model));
-    } else if request.clears_default(root.get("model").and_then(Value::as_str).unwrap_or("")) {
-        root.remove("model");
-    }
-    let effort = request.settings.effort.trim();
-    if !effort.is_empty() {
-        root.insert("thoughtLevel".into(), Value::String(effort.to_string()));
-    } else {
-        root.remove("thoughtLevel");
-    }
+    if request.write_providers {
+        let mut providers: BTreeMap<String, Value> =
+            super::json_object(root.get("provider")).into_iter().collect();
+        endpoint::prune_providers(&mut providers, &request.providers, &request.retired);
+        for provider in &request.providers {
+            let key = request.keys.get(&provider.id).cloned().unwrap_or_default();
+            providers.insert(provider.id.clone(), Value::Object(zcode_provider(provider, &key)));
+        }
+        alive = Some(providers.keys().cloned().collect());
+        root.insert("provider".into(), Value::Object(providers.into_iter().collect()));
 
-    let mut mcp = super::json_object(root.get("mcp"));
-    sync_mcp(&mut mcp, request);
-    if mcp.is_empty() {
-        root.remove("mcp");
-    } else {
-        root.insert("mcp".into(), Value::Object(mcp));
+        let model = request.default_model_base();
+        if !model.is_empty() {
+            root.insert("model".into(), Value::String(model));
+        } else if request.clears_default(root.get("model").and_then(Value::as_str).unwrap_or("")) {
+            root.remove("model");
+        }
+        let effort = request.settings.effort.trim();
+        if !effort.is_empty() {
+            root.insert("thoughtLevel".into(), Value::String(effort.to_string()));
+        } else {
+            root.remove("thoughtLevel");
+        }
     }
 
-    write_json_map(ctx.session, request.kind.raw(), &root, &paths.config, 0o600)?;
-    write_cli_mcp(request, &paths.config, ctx)?;
-    ctx.write_instructions(
-        request.kind,
-        &paths.instructions,
-        &request.instructions,
-        request.settings.instruction_on,
-    )?;
-    if let Some(extra) = &paths.extra {
-        upsert_rules(extra, request, &alive, ctx)?;
+    if request.write_mcp {
+        let mut mcp = super::json_object(root.get("mcp"));
+        removed_mcp = sync_mcp(&mut mcp, request);
+        if mcp.is_empty() {
+            root.remove("mcp");
+        } else {
+            root.insert("mcp".into(), Value::Object(mcp));
+        }
+    }
+
+    if request.write_providers || (request.write_mcp && (!request.mcp.is_empty() || removed_mcp)) {
+        write_json_map(ctx.session, request.kind.raw(), &root, &paths.config, 0o600)?;
+    }
+    if request.write_mcp {
+        write_cli_mcp(request, &paths.config, ctx)?;
+    }
+    if request.write_instructions {
+        ctx.write_instructions(
+            request.kind,
+            &paths.instructions,
+            &request.instructions,
+            request.settings.instruction_on,
+        )?;
+    }
+    if request.write_providers {
+        if let (Some(extra), Some(alive)) = (&paths.extra, &alive) {
+            upsert_rules(extra, request, alive, ctx)?;
+        }
     }
     Ok(())
 }
@@ -63,17 +78,21 @@ fn base_url(provider: &Provider) -> String {
     endpoint::for_provider(&provider.base_url, provider.api)
 }
 
-fn sync_mcp(section: &mut Map<String, Value>, request: &ApplyRequest) {
+fn sync_mcp(section: &mut Map<String, Value>, request: &ApplyRequest) -> bool {
     let assigned: HashSet<&str> = request.mcp.iter().map(|server| server.id.as_str()).collect();
+    let managed = request.managed_mcp_set();
     let names: Vec<String> = section.keys().cloned().collect();
+    let mut removed = false;
     for name in names {
-        if request.settings.mcp_ids.contains(&name) && !assigned.contains(name.as_str()) {
+        if managed.contains(name.as_str()) && !assigned.contains(name.as_str()) {
             section.remove(&name);
+            removed = true;
         }
     }
     for server in &request.mcp {
         section.insert(server.id.clone(), Value::Object(open_code_mcp(server)));
     }
+    removed
 }
 
 fn cli_config_path(config: &Path) -> PathBuf {
@@ -97,11 +116,17 @@ fn write_cli_mcp(
     let mut mcp = super::json_object(root.get("mcp"));
     let mut servers = super::json_object(mcp.get("servers"));
     let assigned: HashSet<&str> = request.mcp.iter().map(|server| server.id.as_str()).collect();
+    let managed = request.managed_mcp_set();
     let names: Vec<String> = servers.keys().cloned().collect();
+    let mut removed = false;
     for name in names {
-        if request.settings.mcp_ids.contains(&name) && !assigned.contains(name.as_str()) {
+        if managed.contains(name.as_str()) && !assigned.contains(name.as_str()) {
             servers.remove(&name);
+            removed = true;
         }
+    }
+    if !request.write_providers && request.mcp.is_empty() && !removed {
+        return Ok(());
     }
     for server in &request.mcp {
         servers.insert(server.id.clone(), Value::Object(zcode_cli_entry(server)));

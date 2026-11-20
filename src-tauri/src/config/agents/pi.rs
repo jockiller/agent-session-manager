@@ -38,16 +38,22 @@ pub fn apply(
     paths: &AgentPaths,
     ctx: &mut ApplyContext<'_>,
 ) -> Result<(), ApplyError> {
-    write_models(request, &paths.config, ctx)?;
-    write_auth(request, &sibling(&paths.config, "auth.json"), ctx)?;
-    write_settings(request, &sibling(&paths.config, "settings.json"), ctx)?;
-    apply_mcp(request, &sibling(&paths.config, "mcp.json"), ctx)?;
-    ctx.write_instructions(
-        request.kind,
-        &paths.instructions,
-        &request.instructions,
-        request.settings.instruction_on,
-    )?;
+    if request.write_providers {
+        write_models(request, &paths.config, ctx)?;
+        write_auth(request, &sibling(&paths.config, "auth.json"), ctx)?;
+        write_settings(request, &sibling(&paths.config, "settings.json"), ctx)?;
+    }
+    if request.write_mcp {
+        apply_mcp(request, &sibling(&paths.config, "mcp.json"), ctx)?;
+    }
+    if request.write_instructions {
+        ctx.write_instructions(
+            request.kind,
+            &paths.instructions,
+            &request.instructions,
+            request.settings.instruction_on,
+        )?;
+    }
     Ok(())
 }
 
@@ -215,15 +221,16 @@ pub(crate) fn apply_mcp(
         .map(|server| sanitize_mcp_name(&server.id))
         .collect();
     let wanted: HashSet<String> = request
-        .settings
-        .mcp_ids
-        .iter()
-        .map(|id| sanitize_mcp_name(id))
+        .managed_mcp_set()
+        .into_iter()
+        .map(sanitize_mcp_name)
         .collect();
     let names: Vec<String> = servers.keys().cloned().collect();
+    let mut removed_any = false;
     for name in names {
         if wanted.contains(&name) && !assigned.contains(&name) {
             servers.remove(&name);
+            removed_any = true;
         }
     }
     for server in &request.mcp {
@@ -237,7 +244,9 @@ pub(crate) fn apply_mcp(
     } else {
         root.insert("mcpServers".into(), Value::Object(servers));
     }
-    if root.is_empty() && !path.exists() {
+    if (!request.write_providers && request.mcp.is_empty() && !removed_any)
+        || (root.is_empty() && !path.exists())
+    {
         return Ok(());
     }
     write_json_map(ctx.session, request.kind.raw(), &root, path, 0o644)?;
@@ -585,9 +594,12 @@ mod tests {
     #[test]
     fn agent_kind_includes_pi_and_omp() {
         assert_eq!(
-            AgentKind::ALL.map(|kind| kind.raw()),
+            AgentKind::PROVIDER_AGENTS.map(|kind| kind.raw()),
             ["opencode", "dsh", "zcode", "grok", "pi", "omp"]
         );
+        for expected in ["antigravity", "claude", "codex", "gemini", "cursor", "qwen"] {
+            assert!(AgentKind::ALL.iter().any(|k| k.raw() == expected));
+        }
         assert_eq!(APIKind::Anthropic.pi_api(), "anthropic-messages");
         assert_eq!(APIKind::Responses.pi_api(), "openai-responses");
         assert_eq!(APIKind::Completions.pi_api(), "openai-completions");

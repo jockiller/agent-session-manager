@@ -14,15 +14,21 @@ pub fn apply(
     paths: &AgentPaths,
     ctx: &mut ApplyContext<'_>,
 ) -> Result<(), ApplyError> {
-    write_models(request, &paths.config, ctx)?;
-    write_config(request, &pi::sibling(&paths.config, "config.yml"), ctx)?;
-    pi::apply_mcp(request, &pi::sibling(&paths.config, "mcp.json"), ctx)?;
-    ctx.write_instructions(
-        request.kind,
-        &paths.instructions,
-        &request.instructions,
-        request.settings.instruction_on,
-    )?;
+    if request.write_providers {
+        write_models(request, &paths.config, ctx)?;
+        write_config(request, &pi::sibling(&paths.config, "config.yml"), ctx)?;
+    }
+    if request.write_mcp {
+        pi::apply_mcp(request, &pi::sibling(&paths.config, "mcp.json"), ctx)?;
+    }
+    if request.write_instructions {
+        ctx.write_instructions(
+            request.kind,
+            &paths.instructions,
+            &request.instructions,
+            request.settings.instruction_on,
+        )?;
+    }
     Ok(())
 }
 

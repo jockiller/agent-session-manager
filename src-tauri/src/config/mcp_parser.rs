@@ -112,8 +112,53 @@ fn servers_from(root: &Map<String, Value>) -> Vec<MCPServer> {
     result
 }
 
+fn is_entry_enabled(conf: &Map<String, Value>) -> bool {
+    if conf.get("disabled").and_then(Value::as_bool) == Some(true) {
+        return false;
+    }
+    if conf.get("enabled").and_then(Value::as_bool) == Some(false) {
+        return false;
+    }
+    true
+}
+
+pub fn parse_agent_mcp_json(root: &Map<String, Value>, section_keys: &[&str]) -> Vec<MCPServer> {
+    let Some(section) = nested(root, section_keys) else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    for (name, value) in &section {
+        let Some(conf) = value.as_object() else {
+            continue;
+        };
+        if !is_entry_enabled(conf) {
+            continue;
+        }
+        let id = unquote(name).trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        if let Some(server) = server_from(&id, conf) {
+            result.push(server);
+        }
+    }
+    result.sort_by(|a, b| a.id.cmp(&b.id));
+    result
+}
+
+pub fn parse_agent_mcp_toml(text: &str) -> Vec<MCPServer> {
+    parse_toml_inner(text, true).unwrap_or_default()
+}
+
 fn server_from(id: &str, conf: &Map<String, Value>) -> Option<MCPServer> {
-    let url = json_string(conf, "url");
+    let url = [
+        json_string(conf, "url"),
+        json_string(conf, "httpUrl"),
+        json_string(conf, "serverUrl"),
+    ]
+    .into_iter()
+    .find(|s| !s.is_empty())
+    .unwrap_or_default();
     let type_name = json_string(conf, "type").to_lowercase();
     let mut command = string_list(conf.get("command"));
     command.extend(string_list(conf.get("args")));
@@ -145,6 +190,10 @@ fn server_from(id: &str, conf: &Map<String, Value>) -> Option<MCPServer> {
 }
 
 fn parse_toml(text: &str) -> Option<Vec<MCPServer>> {
+    parse_toml_inner(text, false)
+}
+
+fn parse_toml_inner(text: &str, require_mcp_prefix: bool) -> Option<Vec<MCPServer>> {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut tables: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     let mut env_tables: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
@@ -159,13 +208,13 @@ fn parse_toml(text: &str) -> Option<Vec<MCPServer>> {
         }
         if line.starts_with('[') && line.ends_with(']') {
             let header = &line[1..line.len() - 1];
-            let (name, env) = section(header);
-            if name.is_none() {
+            let (name, env, had_mcp_prefix) = section(header);
+            if name.is_none() || (require_mcp_prefix && !had_mcp_prefix) {
                 current = None;
                 in_env = false;
                 continue;
             }
-            if header.to_lowercase().starts_with("mcp") {
+            if had_mcp_prefix {
                 saw_mcp_prefix = true;
             }
             current = name.clone();
@@ -210,6 +259,12 @@ fn parse_toml(text: &str) -> Option<Vec<MCPServer>> {
 
     let mut root = Map::new();
     for (name, fields) in tables {
+        if require_mcp_prefix
+            && (fields.get("disabled").map(|v| v.trim()) == Some("true")
+                || fields.get("enabled").map(|v| v.trim()) == Some("false"))
+        {
+            continue;
+        }
         let mut conf = Map::new();
         if let Some(command) = fields.get("command") {
             let trimmed = command.trim();
@@ -255,7 +310,7 @@ fn parse_toml(text: &str) -> Option<Vec<MCPServer>> {
     }
 }
 
-fn section(header: &str) -> (Option<String>, bool) {
+fn section(header: &str) -> (Option<String>, bool, bool) {
     let prefixes = ["mcp_servers.", "mcpServers.", "mcp."];
     let lowered = header.to_lowercase();
     let mut rest = header.to_string();
@@ -267,17 +322,19 @@ fn section(header: &str) -> (Option<String>, bool) {
             break;
         }
     }
-    rest = unquote(rest.trim());
-    if let Some(name) = rest.strip_suffix(".env") {
-        return (if name.is_empty() { None } else { Some(name.to_string()) }, true);
+    let trimmed = rest.trim();
+    if let Some(prefix) = trimmed.strip_suffix(".env") {
+        let name = unquote(prefix.trim());
+        return (if name.is_empty() { None } else { Some(name) }, true, matched);
     }
+    let unquoted = unquote(trimmed);
     if matched {
-        return (if rest.is_empty() { None } else { Some(rest) }, false);
+        return (if unquoted.is_empty() { None } else { Some(unquoted) }, false, true);
     }
-    if rest.contains('.') || rest.contains('/') {
-        return (None, false);
+    if unquoted.contains('.') || unquoted.contains('/') {
+        return (None, false, false);
     }
-    (if rest.is_empty() { None } else { Some(rest) }, false)
+    (if unquoted.is_empty() { None } else { Some(unquoted) }, false, false)
 }
 
 fn parse_single_line(text: &str) -> Option<Vec<MCPServer>> {

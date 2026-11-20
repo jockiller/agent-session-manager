@@ -7,11 +7,14 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use crate::config::agents::dsh;
-use crate::config::apply::{self, ApplyOutcome};
+use crate::config::apply::{self, ApplyOutcome, ApplyScope, DiscoveredDiskMcp};
 use crate::config::catalog_cache;
 use crate::config::catalog_client;
 use crate::config::detector::AgentDetector;
 use crate::config::fileio;
+use crate::config::instructions::{
+    self, InstructionBackupEntry, InstructionSyncOutcome, InstructionsState, TargetScanRow,
+};
 use crate::config::mcp_parser;
 use crate::config::models::{AgentKind, AppDocument, MCPServer, ModelEntry, Provider};
 use crate::config::profile;
@@ -100,17 +103,54 @@ fn apply_blocking(
 ) -> Result<ApplyResult, String> {
     let _guard = APPLY_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let parsed = AgentKind::from_raw(&kind).ok_or_else(|| format!("未知的 Agent：{kind}"))?;
+    if !parsed.supports_providers() {
+        return Err(format!(
+            "{} 不支持自定义 Provider 导出，请在 MCP 或指令集栏目中同步",
+            parsed.raw()
+        ));
+    }
     save_to_dir(&app_data, &mut document)?;
     let home = current_home();
     let env: HashMap<String, String> = std::env::vars().collect();
     let backups_root = app_data.join("backups");
     let ApplyOutcome { written, backups } =
-        apply::apply(&document, parsed, &home, &env, &backups_root).map_err(|err| err.message())?;
+        apply::apply_with_scope(&document, parsed, ApplyScope::ProvidersOnly, &home, &env, &backups_root)
+            .map_err(|err| err.message())?;
     let stamp = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     document
         .applied_at
         .insert(parsed.raw().to_string(), stamp);
     save_to_dir(&app_data, &mut document)?;
+    Ok(ApplyResult {
+        document,
+        written: paths_as_strings(&written),
+        backups: paths_as_strings(&backups),
+    })
+}
+
+fn sync_mcp_blocking(
+    app_data: PathBuf,
+    mut document: AppDocument,
+) -> Result<ApplyResult, String> {
+    let _guard = APPLY_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let state_path = config_state_path(&app_data);
+    let prev_mcp_ids: Vec<String> = if state_path.exists() {
+        fileio::load_document(&state_path)
+            .library
+            .mcp
+            .into_iter()
+            .map(|server| server.id)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    save_to_dir(&app_data, &mut document)?;
+    let home = current_home();
+    let env: HashMap<String, String> = std::env::vars().collect();
+    let backups_root = app_data.join("backups");
+    let ApplyOutcome { written, backups } =
+        apply::sync_mcp_all(&document, &prev_mcp_ids, &home, &env, &backups_root)
+            .map_err(|err| err.message())?;
     Ok(ApplyResult {
         document,
         written: paths_as_strings(&written),
@@ -156,7 +196,10 @@ pub async fn pull_catalog_for(
 #[tauri::command]
 pub fn config_load(app: AppHandle) -> Result<AppDocument, String> {
     let app_data = app.path().app_data_dir().map_err(|err| err.to_string())?;
-    Ok(load_from_dir(&app_data))
+    let mut document = load_from_dir(&app_data);
+    let env: HashMap<String, String> = std::env::vars().collect();
+    apply::reconcile_disk_mcp(&mut document, &current_home(), &env);
+    Ok(document)
 }
 
 #[tauri::command]
@@ -175,6 +218,23 @@ pub async fn config_apply(
     tokio::task::spawn_blocking(move || apply_blocking(app_data, kind, document))
         .await
         .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn config_sync_mcp(
+    app: AppHandle,
+    document: AppDocument,
+) -> Result<ApplyResult, String> {
+    let app_data = app.path().app_data_dir().map_err(|err| err.to_string())?;
+    tokio::task::spawn_blocking(move || sync_mcp_blocking(app_data, document))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub fn config_scan_disk_mcp(document: AppDocument) -> Vec<DiscoveredDiskMcp> {
+    let env: HashMap<String, String> = std::env::vars().collect();
+    apply::scan_all_disk_mcp(&document, &current_home(), &env)
 }
 
 #[tauri::command]
@@ -231,6 +291,90 @@ pub fn config_parse_mcp(text: String) -> Result<Vec<MCPServer>, String> {
     mcp_parser::parse(&text).map_err(|err| err.message().to_string())
 }
 
+#[tauri::command]
+pub fn instructions_scan_targets(state: InstructionsState) -> Vec<TargetScanRow> {
+    let home = current_home();
+    let env: HashMap<String, String> = std::env::vars().collect();
+    instructions::scan_targets(&state, &home, &env)
+}
+
+#[tauri::command]
+pub fn instructions_read_target(
+    state: InstructionsState,
+    target_id: String,
+) -> Result<String, String> {
+    let home = current_home();
+    let env: HashMap<String, String> = std::env::vars().collect();
+    instructions::read_target_file(&state, &target_id, &home, &env)
+}
+
+#[tauri::command]
+pub fn instructions_sync_targets(
+    app: AppHandle,
+    mut document: AppDocument,
+    target_ids: Vec<String>,
+) -> Result<(AppDocument, InstructionSyncOutcome), String> {
+    let _guard = APPLY_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let app_data = app.path().app_data_dir().map_err(|err| err.to_string())?;
+    let home = current_home();
+    let env: HashMap<String, String> = std::env::vars().collect();
+    let backups_root = app_data.join("backups");
+    let outcome = instructions::sync_targets(
+        &mut document.instructions,
+        &target_ids,
+        &home,
+        &env,
+        &backups_root,
+    )?;
+    // Sync legacy library.instructions if a default preset exists for clean backward compat
+    if let Some(def) = document.instructions.presets.first() {
+        document.library.instructions = def.content.clone();
+    }
+    save_to_dir(&app_data, &mut document)?;
+    Ok((document, outcome))
+}
+
+#[tauri::command]
+pub fn instructions_list_backups(
+    app: AppHandle,
+    state: InstructionsState,
+    target_id: String,
+) -> Result<Vec<InstructionBackupEntry>, String> {
+    let app_data = app.path().app_data_dir().map_err(|err| err.to_string())?;
+    let home = current_home();
+    let env: HashMap<String, String> = std::env::vars().collect();
+    let backups_root = app_data.join("backups");
+    Ok(instructions::list_backups(
+        &state,
+        &target_id,
+        &home,
+        &env,
+        &backups_root,
+    ))
+}
+
+#[tauri::command]
+pub fn instructions_restore_backup(
+    app: AppHandle,
+    state: InstructionsState,
+    target_id: String,
+    backup_path: String,
+) -> Result<String, String> {
+    let _guard = APPLY_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let app_data = app.path().app_data_dir().map_err(|err| err.to_string())?;
+    let home = current_home();
+    let env: HashMap<String, String> = std::env::vars().collect();
+    let backups_root = app_data.join("backups");
+    instructions::restore_backup(
+        &state,
+        &target_id,
+        Path::new(&backup_path),
+        &home,
+        &env,
+        &backups_root,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,7 +426,7 @@ mod tests {
         let dir = TestDir::new("cfg_broken");
         std::fs::write(dir.path().join("config-state.json"), "not-json").unwrap();
         let document = load_from_dir(dir.path());
-        assert_eq!(document.agents.len(), 6);
+        assert_eq!(document.agents.len(), AgentKind::ALL.len());
     }
 
     #[test]

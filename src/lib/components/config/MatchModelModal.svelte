@@ -124,17 +124,17 @@
     tabindex="-1"
   >
     <div
-      class="bg-white rounded-2xl shadow-xl border border-slate-200/90 w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
+      class="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200/90 dark:border-slate-700 w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
       role="document"
     >
       <div class="flex items-start gap-3 px-4 pt-3.5 pb-2">
         <div class="flex-1 min-w-0">
-          <h2 id="match-model-title" class="text-sm font-bold text-slate-900">{t("cfg_match_title")}</h2>
+          <h2 id="match-model-title" class="text-sm font-bold text-slate-900 dark:text-slate-100">{t("cfg_match_title")}</h2>
           <p class="mt-0.5 text-[11px] text-slate-400 truncate">{t("cfg_match_target", { id: targetID })}</p>
         </div>
         <button
           type="button"
-          class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+          class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           title={t("close")}
           onclick={onClose}
         >
@@ -174,7 +174,7 @@
         {/if}
       </div>
 
-      <div class="flex-1 min-h-0 overflow-y-auto border-t border-slate-100">
+      <div class="flex-1 min-h-0 overflow-y-auto border-t border-slate-100 dark:border-slate-800">
         {#if refreshing}
           <div class="flex items-center gap-2 px-4 py-6 text-xs text-slate-400">
             <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
@@ -186,7 +186,7 @@
             {t("cfg_match_loading")}
           </div>
         {:else if error}
-          <p class="px-4 py-6 text-xs text-rose-600">{error}</p>
+          <p class="px-4 py-6 text-xs text-rose-600 dark:text-rose-400">{error}</p>
         {:else if results.length === 0}
           <p class="px-4 py-6 text-xs text-slate-400">{t("cfg_match_empty")}</p>
         {:else}
@@ -194,13 +194,13 @@
             {#each results as hit (hit.id)}
               <button
                 type="button"
-                class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-slate-50 transition cursor-pointer"
+                class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
                 onclick={() => onPick(hit)}
               >
                 <span class="flex items-center gap-2 min-w-0">
-                  <span class="text-xs font-medium font-mono text-slate-800 truncate">{hit.id}</span>
+                  <span class="text-xs font-medium font-mono text-slate-800 dark:text-slate-100 truncate">{hit.id}</span>
                   {#if hit.type === "image"}
-                    <span class="shrink-0 rounded-full bg-violet-50 px-1.5 py-px text-[10px] font-medium text-violet-700">
+                    <span class="shrink-0 rounded-full bg-violet-50 dark:bg-violet-950/60 px-1.5 py-px text-[10px] font-medium text-violet-700 dark:text-violet-300">
                       {t("cfg_model_type_image")}
                     </span>
                   {/if}
@@ -208,7 +208,7 @@
                 <span class="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400 min-w-0">
                   <span class="truncate">{summaryPills(hit).join(" · ")}</span>
                   {#if price(hit)}
-                    <span class="shrink-0 text-slate-500">{price(hit)}</span>
+                    <span class="shrink-0 text-slate-500 dark:text-slate-400">{price(hit)}</span>
                   {/if}
                 </span>
               </button>

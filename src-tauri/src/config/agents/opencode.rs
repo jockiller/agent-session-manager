@@ -13,101 +13,119 @@ pub fn apply(
     ctx: &mut ApplyContext<'_>,
 ) -> Result<(), ApplyError> {
     let mut root = crate::config::fileio::read_json_object(&paths.config);
-    if root.get("$schema").is_none() {
-        root.insert(
-            "$schema".into(),
-            Value::String("https://opencode.ai/config.json".into()),
-        );
-    }
+    let mut removed_mcp = false;
 
-    // Mutate nested objects in place so a second apply cannot reshuffle root keys.
-    if !matches!(root.get("providers"), Some(Value::Object(_))) {
-        root.insert("providers".into(), Value::Object(Map::new()));
-    }
-    let mut providers: BTreeMap<String, Value> = match root.get("providers") {
-        Some(Value::Object(map)) => map.clone().into_iter().collect(),
-        _ => BTreeMap::new(),
-    };
-    endpoint::prune_providers(&mut providers, &request.providers, &request.retired);
-    for provider in &request.providers {
-        let key = request.keys.get(&provider.id).cloned().unwrap_or_default();
-        let existing = providers.get(&provider.id).cloned();
-        providers.insert(
-            provider.id.clone(),
-            Value::Object(open_code_provider(
-                provider,
-                &key,
-                &request.settings,
-                existing.as_ref(),
-            )),
-        );
-    }
-    if let Some(Value::Object(map)) = root.get_mut("providers") {
-        *map = providers.into_iter().collect();
-    }
-    root.remove("provider");
-
-    let model = request.default_model_ref();
-    if !model.is_empty() {
-        root.insert("model".into(), Value::String(model));
-    } else {
-        let current = match root.get("model") {
-            Some(Value::String(value)) => value.as_str(),
-            _ => "",
-        };
-        if request.clears_default(current) {
-            root.remove("model");
+    if request.write_providers {
+        if root.get("$schema").is_none() {
+            root.insert(
+                "$schema".into(),
+                Value::String("https://opencode.ai/config.json".into()),
+            );
         }
-    }
-    let small = request.settings.small_model.trim();
-    if small.is_empty() {
-        root.remove("small_model");
-    } else {
-        root.insert("small_model".into(), Value::String(small.to_string()));
-    }
 
-    let mut mcp = match root.get("mcp") {
-        Some(Value::Object(map)) => map.clone(),
-        _ => Map::new(),
-    };
-    let assigned: HashSet<String> = request.mcp.iter().map(|server| server.id.clone()).collect();
-    let names: Vec<String> = mcp.keys().cloned().collect();
-    for name in names {
-        if assigned.contains(&name) || request.settings.mcp_ids.iter().any(|id| id == &name) {
-            if !assigned.contains(&name) {
-                mcp.remove(&name);
+        // Mutate nested objects in place so a second apply cannot reshuffle root keys.
+        if !matches!(root.get("providers"), Some(Value::Object(_))) {
+            root.insert("providers".into(), Value::Object(Map::new()));
+        }
+        let mut providers: BTreeMap<String, Value> = match root.get("providers") {
+            Some(Value::Object(map)) => map.clone().into_iter().collect(),
+            _ => BTreeMap::new(),
+        };
+        endpoint::prune_providers(&mut providers, &request.providers, &request.retired);
+        for provider in &request.providers {
+            let key = request.keys.get(&provider.id).cloned().unwrap_or_default();
+            let existing = providers.get(&provider.id).cloned();
+            providers.insert(
+                provider.id.clone(),
+                Value::Object(open_code_provider(
+                    provider,
+                    &key,
+                    &request.settings,
+                    existing.as_ref(),
+                )),
+            );
+        }
+        if let Some(Value::Object(map)) = root.get_mut("providers") {
+            *map = providers.into_iter().collect();
+        }
+        root.remove("provider");
+
+        let model = request.default_model_ref();
+        if !model.is_empty() {
+            root.insert("model".into(), Value::String(model));
+        } else {
+            let current = match root.get("model") {
+                Some(Value::String(value)) => value.as_str(),
+                _ => "",
+            };
+            if request.clears_default(current) {
+                root.remove("model");
             }
         }
-    }
-    for server in &request.mcp {
-        mcp.insert(server.id.clone(), Value::Object(open_code_mcp(server)));
-    }
-    if mcp.is_empty() {
-        root.remove("mcp");
-    } else if let Some(Value::Object(map)) = root.get_mut("mcp") {
-        *map = mcp;
-    } else {
-        root.insert("mcp".into(), Value::Object(mcp));
+        let small = request.settings.small_model.trim();
+        if small.is_empty() {
+            root.remove("small_model");
+        } else {
+            root.insert("small_model".into(), Value::String(small.to_string()));
+        }
     }
 
-    let mut plugins = match root.get("plugins") {
-        Some(Value::Array(items)) => items.clone(),
-        _ => Vec::new(),
-    };
-    let disable = "-opencode.prompt.identity";
-    let already = plugins.iter().any(|item| item.as_str() == Some(disable));
-    if !already {
-        plugins.push(Value::String(disable.into()));
-        root.insert("plugins".into(), Value::Array(plugins));
+    if request.write_mcp {
+        let mut mcp = match root.get("mcp") {
+            Some(Value::Object(map)) => map.clone(),
+            _ => Map::new(),
+        };
+        let assigned: HashSet<&str> = request.mcp.iter().map(|server| server.id.as_str()).collect();
+        let managed = request.managed_mcp_set();
+        let names: Vec<String> = mcp.keys().cloned().collect();
+        for name in names {
+            if managed.contains(name.as_str()) && !assigned.contains(name.as_str()) {
+                mcp.remove(&name);
+                removed_mcp = true;
+            }
+        }
+        for server in &request.mcp {
+            mcp.insert(server.id.clone(), Value::Object(open_code_mcp(server)));
+        }
+        if mcp.is_empty() {
+            root.remove("mcp");
+        } else if let Some(Value::Object(map)) = root.get_mut("mcp") {
+            *map = mcp;
+        } else {
+            root.insert("mcp".into(), Value::Object(mcp));
+        }
     }
 
-    write_json_map(ctx.session, request.kind.raw(), &root, &paths.config, 0o600)?;
-    ctx.write_instructions(
-        request.kind,
-        &paths.instructions,
-        &request.instructions,
-        request.settings.instruction_on,
-    )?;
+    if request.write_providers {
+        let mut plugins = match root.get("plugins") {
+            Some(Value::Array(items)) => items.clone(),
+            _ => Vec::new(),
+        };
+        let disable = "-opencode.prompt.identity";
+        let already = plugins.iter().any(|item| item.as_str() == Some(disable));
+        if !already {
+            plugins.push(Value::String(disable.into()));
+            root.insert("plugins".into(), Value::Array(plugins));
+        }
+        write_json_map(ctx.session, request.kind.raw(), &root, &paths.config, 0o600)?;
+    } else if request.write_mcp && (!request.mcp.is_empty() || removed_mcp) {
+        if root.get("$schema").is_none() && !paths.config.exists() {
+            root.insert(
+                "$schema".into(),
+                Value::String("https://opencode.ai/config.json".into()),
+            );
+        }
+        write_json_map(ctx.session, request.kind.raw(), &root, &paths.config, 0o600)?;
+    }
+
+    if request.write_instructions {
+        ctx.write_instructions(
+            request.kind,
+            &paths.instructions,
+            &request.instructions,
+            request.settings.instruction_on,
+        )?;
+    }
     Ok(())
 }
 

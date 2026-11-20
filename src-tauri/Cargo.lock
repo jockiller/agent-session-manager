@@ -14,6 +14,7 @@ version = "0.2.9"
 dependencies = [
  "anyhow",
  "chrono",
+ "hex",
  "libc",
  "rayon",
  "regex",
@@ -21,6 +22,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",

@@ -18,11 +18,11 @@
   } = $props();
 </script>
 
-<div class="shrink-0 flex items-center gap-2.5 px-4 py-2.5 border-t border-slate-200/80 bg-slate-50/80">
+<div class="shrink-0 flex items-center gap-2.5 px-4 py-2.5 border-t border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/90">
   {#if isDirty}
     <DirtyBadge />
   {:else}
-    <span class="text-[11px] text-slate-400">{hint}</span>
+    <span class="text-[11px] text-slate-400 dark:text-slate-500">{hint}</span>
   {/if}
   <div class="flex-1"></div>
   <button type="button" class={btnGhost} disabled={!isDirty} onclick={onDiscard}>

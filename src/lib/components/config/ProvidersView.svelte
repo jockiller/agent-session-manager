@@ -198,8 +198,8 @@
   }
 </script>
 
-<div class="flex h-full min-h-0">
-  <div class="w-[220px] shrink-0 border-r border-slate-200/80 bg-slate-50/80 flex flex-col min-h-0">
+<div class="flex h-full min-h-0 bg-slate-50 dark:bg-slate-950">
+  <div class="w-[220px] shrink-0 border-r border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 flex flex-col min-h-0">
     <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
       {#each store.document.providers as provider (provider.id)}
         {@const draft = draftOf(provider.id)}
@@ -208,8 +208,8 @@
           <button
             type="button"
             class="w-full text-left px-2.5 py-1.5 rounded-lg transition cursor-pointer {draft.enabled ? '' : 'opacity-60'} {selected
-              ? 'bg-white text-slate-900 font-semibold shadow-2xs border border-slate-200/80'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'}"
+              ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shadow-2xs border border-slate-200/80 dark:border-slate-700'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100 border border-transparent'}"
             onclick={() => (store.selectedProviderID = provider.id)}
           >
             <span class="flex items-center gap-1.5">
@@ -232,7 +232,7 @@
         {/if}
       {/each}
     </div>
-    <div class="shrink-0 flex items-center gap-2 px-3 py-2.5 border-t border-slate-200/80">
+    <div class="shrink-0 flex items-center gap-2 px-3 py-2.5 border-t border-slate-200/80 dark:border-slate-800">
       <button type="button" class={btnGhost} onclick={() => store.addProvider()}>{t("cfg_add")}</button>
       <button
         type="button"
@@ -248,9 +248,9 @@
   <div class="flex-1 min-w-0 flex flex-col min-h-0">
     {#if !store.selectedProvider}
       <div class="flex-1 flex flex-col items-center justify-center gap-2 text-center px-8">
-        <Unplug class="h-8 w-8 text-slate-300" />
-        <div class="text-sm font-semibold text-slate-600">{t("cfg_no_providers")}</div>
-        <p class="text-xs text-slate-400">{t("cfg_no_providers_desc")}</p>
+        <Unplug class="h-8 w-8 text-slate-300 dark:text-slate-600" />
+        <div class="text-sm font-semibold text-slate-600 dark:text-slate-300">{t("cfg_no_providers")}</div>
+        <p class="text-xs text-slate-400 dark:text-slate-500">{t("cfg_no_providers_desc")}</p>
       </div>
     {:else}
       {@const provider = store.selectedProvider}
@@ -259,7 +259,7 @@
           <div class="flex items-center justify-between gap-3">
             <SectionLabel title={t("cfg_connection")} />
             <div class="flex items-center gap-2 shrink-0">
-              <span class="text-[11px] font-medium {provider.enabled ? 'text-slate-600' : 'text-amber-700'}">
+              <span class="text-[11px] font-medium {provider.enabled ? 'text-slate-600 dark:text-slate-300' : 'text-amber-700 dark:text-amber-400'}">
                 {t("cfg_provider_enabled")}
               </span>
               <button
@@ -268,8 +268,8 @@
                 aria-checked={provider.enabled}
                 aria-label={t("cfg_provider_enabled")}
                 class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer {provider.enabled
-                  ? 'bg-sky-600'
-                  : 'bg-slate-300'}"
+                  ? 'bg-claude-600'
+                  : 'bg-slate-300 dark:bg-slate-700'}"
                 onclick={() => store.updateSelectedProvider((next) => { next.enabled = !next.enabled; })}
               >
                 <span
@@ -281,7 +281,7 @@
             </div>
           </div>
           {#if !provider.enabled}
-            <p class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200/80 rounded-lg px-2.5 py-1.5">
+            <p class="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 border border-amber-200/80 dark:border-amber-800 rounded-lg px-2.5 py-1.5">
               {t("cfg_provider_disabled")}
             </p>
           {/if}
@@ -390,7 +390,7 @@
             <div class="space-y-1.5">
               {#each provider.models as model (model.id)}
                 {@const expanded = expandedModelID === model.id}
-                <div class="rounded-[10px] bg-slate-50/80 p-2 space-y-2">
+                <div class="rounded-[10px] bg-slate-50/80 dark:bg-slate-800/60 p-2 space-y-2">
                   <div class="flex items-center gap-2">
                     <button
                       type="button"
@@ -403,7 +403,7 @@
                         <ChevronRight class="h-3 w-3 text-slate-400 shrink-0" />
                       {/if}
                       <span class="min-w-0 flex-1">
-                        <span class="block text-xs font-medium text-slate-800 truncate">{model.name}</span>
+                        <span class="block text-xs font-medium text-slate-800 dark:text-slate-100 truncate">{model.name}</span>
                         <span class="block text-[10px] text-slate-400 truncate">{model.id}</span>
                       </span>
                       {#each summaryPills(model) as pill}
@@ -412,7 +412,7 @@
                     </button>
                     <button
                       type="button"
-                      class="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                      class="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer"
                       title={t("cfg_delete")}
                       onclick={() => store.removeModel(model.id)}
                     >
@@ -420,7 +420,7 @@
                     </button>
                   </div>
                   {#if expanded}
-                    <div class="rounded-lg bg-white/80 border border-slate-100 p-2.5 space-y-2.5">
+                    <div class="rounded-lg bg-white/80 dark:bg-slate-900/90 border border-slate-100 dark:border-slate-700 p-2.5 space-y-2.5">
                       <div class="flex items-start gap-2">
                         <p class="flex-1 text-[10px] text-slate-400 leading-relaxed">{t("cfg_match_model_hint")}</p>
                         <button

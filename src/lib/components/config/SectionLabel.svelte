@@ -3,8 +3,8 @@
 </script>
 
 <div class="flex items-baseline gap-2">
-  <span class="text-xs font-semibold text-slate-800">{title}</span>
+  <span class="text-xs font-semibold text-slate-800 dark:text-slate-100">{title}</span>
   {#if accessory}
-    <span class="text-[11px] text-slate-400">{accessory}</span>
+    <span class="text-[11px] text-slate-400 dark:text-slate-500">{accessory}</span>
   {/if}
 </div>

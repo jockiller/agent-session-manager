@@ -11,50 +11,88 @@ pub fn apply(
     ctx: &mut ApplyContext<'_>,
 ) -> Result<(), ApplyError> {
     let existing = read_text(&paths.config);
-    let mut drop = model_headers_to_drop(&managed_model_keys(request), &existing);
-    drop.extend(model_headers_matching_urls(&request.prune_urls(), &existing));
-    let mut text = drop_tables(&existing, &drop);
-    text = drop_tables(&text, &mcp_headers(&request.settings.mcp_ids, &text));
-
-    let collisions = colliding_bare_ids(request);
+    let mut text = existing.clone();
     let mut blocks = Vec::new();
-    for provider in &request.providers {
-        let api_key = request.keys.get(&provider.id).cloned().unwrap_or_default();
-        for model in &provider.models {
-            let table_key = if collisions.contains(&model.id) {
-                model_ref(&provider.id, &model.id)
-            } else {
-                model.id.clone()
-            };
-            blocks.push(model_table(&table_key, provider, model, &api_key));
+    let mut removed_mcp = false;
+
+    let collisions = if request.write_providers {
+        let mut drop = model_headers_to_drop(&managed_model_keys(request), &text);
+        drop.extend(model_headers_matching_urls(&request.prune_urls(), &text));
+        text = drop_tables(&text, &drop);
+
+        let collisions = colliding_bare_ids(request);
+        for provider in &request.providers {
+            let api_key = request.keys.get(&provider.id).cloned().unwrap_or_default();
+            for model in &provider.models {
+                let table_key = if collisions.contains(&model.id) {
+                    model_ref(&provider.id, &model.id)
+                } else {
+                    model.id.clone()
+                };
+                blocks.push(model_table(&table_key, provider, model, &api_key));
+            }
+        }
+        collisions
+    } else {
+        HashSet::new()
+    };
+
+    if request.write_mcp {
+        let mut mcp_names: Vec<String> = request
+            .managed_mcp_set()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        for server in &request.mcp {
+            mcp_names.push(server.id.clone());
+        }
+        let mcp_drop = mcp_headers(&mcp_names, &text);
+        removed_mcp = !mcp_drop.is_empty();
+        text = drop_tables(&text, &mcp_drop);
+        for server in &request.mcp {
+            blocks.push(mcp_table(server));
         }
     }
-    for server in &request.mcp {
-        blocks.push(mcp_table(server));
-    }
 
-    // Upsert [models] on kept text before appending managed tables so a second
-    // apply cannot move that section below the rewritten tables.
-    let mut body = upsert_default(text.trim(), request, &collisions);
-    if !blocks.is_empty() {
-        body = body.trim_end().to_string();
-        if !body.is_empty() {
-            body.push_str("\n\n");
+    if request.write_providers {
+        // Upsert [models] on kept text before appending managed tables so a second
+        // apply cannot move that section below the rewritten tables.
+        let mut body = upsert_default(text.trim(), request, &collisions);
+        if !blocks.is_empty() {
+            body = body.trim_end().to_string();
+            if !body.is_empty() {
+                body.push_str("\n\n");
+            }
+            body.push_str(&blocks.join("\n\n"));
         }
-        body.push_str(&blocks.join("\n\n"));
-    }
-    if !body.ends_with('\n') {
-        body.push('\n');
+        if !body.ends_with('\n') {
+            body.push('\n');
+        }
+        ctx.session
+            .write(request.kind.raw(), &paths.config, body.as_bytes(), 0o600)?;
+    } else if request.write_mcp && (!blocks.is_empty() || removed_mcp) {
+        let mut body = text.trim().to_string();
+        if !blocks.is_empty() {
+            if !body.is_empty() {
+                body.push_str("\n\n");
+            }
+            body.push_str(&blocks.join("\n\n"));
+        }
+        if !body.is_empty() && !body.ends_with('\n') {
+            body.push('\n');
+        }
+        ctx.session
+            .write(request.kind.raw(), &paths.config, body.as_bytes(), 0o600)?;
     }
 
-    ctx.session
-        .write(request.kind.raw(), &paths.config, body.as_bytes(), 0o600)?;
-    ctx.write_instructions(
-        request.kind,
-        &paths.instructions,
-        &request.instructions,
-        request.settings.instruction_on,
-    )?;
+    if request.write_instructions {
+        ctx.write_instructions(
+            request.kind,
+            &paths.instructions,
+            &request.instructions,
+            request.settings.instruction_on,
+        )?;
+    }
     Ok(())
 }
 

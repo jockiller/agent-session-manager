@@ -382,18 +382,18 @@ mod tests {
             "providers": [],
             "library": { "instructions": "", "mcp": [] },
             "agents": {
-                "codex": { "model": "x" },
+                "unknown_agent": { "model": "x" },
                 "opencode": { "model": "g/flash" }
             },
-            "appliedAt": { "codex": "t", "opencode": "2026-01-01T00:00:00Z" }
+            "appliedAt": { "unknown_agent": "t", "opencode": "2026-01-01T00:00:00Z" }
         }"#;
         let document: AppDocument = serde_json::from_str(raw).unwrap();
-        assert!(!document.agents.contains_key("codex"));
+        assert!(!document.agents.contains_key("unknown_agent"));
         assert_eq!(
             document.agents.get("opencode").map(|s| s.model.as_str()),
             Some("g/flash")
         );
-        assert!(!document.applied_at.contains_key("codex"));
+        assert!(!document.applied_at.contains_key("unknown_agent"));
         assert_eq!(
             document.applied_at.get("opencode").map(String::as_str),
             Some("2026-01-01T00:00:00Z")

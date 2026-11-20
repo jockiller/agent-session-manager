@@ -3,10 +3,15 @@ import {
   AGENT_KINDS,
   API_KINDS,
   EFFORT_LEVELS,
+  PROVIDER_AGENT_KINDS,
   type AgentKind,
   type AgentSettings,
   type APIKind,
   type AppDocument,
+  type CustomInstructionTarget,
+  type InstructionBinding,
+  type InstructionPreset,
+  type InstructionsState,
   type MCPServer,
   type MCPTransport,
   type ModelChoice,
@@ -24,6 +29,12 @@ export const AGENT_TITLE: Record<AgentKind, string> = {
   grok: "Grok",
   pi: "Pi",
   omp: "omp",
+  antigravity: "Antigravity",
+  claude: "Claude Code",
+  codex: "Codex",
+  gemini: "Gemini CLI",
+  cursor: "Cursor",
+  qwen: "Qwen Code",
 };
 
 export const AGENT_TINT: Record<AgentKind, string> = {
@@ -33,7 +44,36 @@ export const AGENT_TINT: Record<AgentKind, string> = {
   grok: "rgb(41, 158, 148)",
   pi: "rgb(89, 184, 112)",
   omp: "rgb(219, 107, 153)",
+  antigravity: "rgb(14, 165, 233)",
+  claude: "rgb(217, 119, 87)",
+  codex: "rgb(16, 185, 129)",
+  gemini: "rgb(2, 132, 199)",
+  cursor: "rgb(79, 70, 229)",
+  qwen: "rgb(37, 99, 235)",
 };
+
+export function agentSupportsProviders(kind: AgentKind): boolean {
+  return (PROVIDER_AGENT_KINDS as string[]).includes(kind);
+}
+
+export function agentSupportsInstructions(kind: AgentKind): boolean {
+  return kind !== "cursor";
+}
+
+export function agentInstructionFileName(kind: AgentKind): string {
+  switch (kind) {
+    case "claude":
+      return "CLAUDE.md";
+    case "gemini":
+      return "GEMINI.md";
+    case "qwen":
+      return "QWEN.md";
+    case "cursor":
+      return "";
+    default:
+      return "AGENTS.md";
+  }
+}
 
 export const API_TITLE: Record<APIKind, string> = {
   responses: "OpenAI Responses",
@@ -58,6 +98,7 @@ export function isAPIKind(value: string): value is APIKind {
 }
 
 export function agentSupportsAPI(kind: AgentKind, api: APIKind): boolean {
+  if (!agentSupportsProviders(kind)) return false;
   switch (kind) {
     case "zcode":
     case "dsh":
@@ -69,7 +110,7 @@ export function agentSupportsAPI(kind: AgentKind, api: APIKind): boolean {
 }
 
 export function agentsWithoutAPI(api: APIKind): AgentKind[] {
-  return AGENT_KINDS.filter((kind) => !agentSupportsAPI(kind, api));
+  return PROVIDER_AGENT_KINDS.filter((kind) => !agentSupportsAPI(kind, api));
 }
 
 /** OpenCode writes a thinking level on each model; other agents keep one default. */
@@ -109,29 +150,34 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-export function emptySettings(): AgentSettings {
+export function emptySettings(kind?: AgentKind): AgentSettings {
   return {
     model: "",
     effort: "high",
     effortByModel: {},
     smallModel: "",
     pickedModelIDs: [],
-    instructionOn: true,
+    instructionOn: kind ? agentSupportsProviders(kind) : true,
     mcpIDs: [],
     profile: "",
   };
 }
 
+export function emptyInstructions(): InstructionsState {
+  return { presets: [], bindings: [], customTargets: [] };
+}
+
 export function emptyDocument(): AppDocument {
   const agents: Record<string, AgentSettings> = {};
   for (const kind of AGENT_KINDS) {
-    agents[kind] = emptySettings();
+    agents[kind] = emptySettings(kind);
   }
   return {
     version: 1,
     providers: [],
     retiredProviders: [],
     library: { instructions: "", mcp: [] },
+    instructions: emptyInstructions(),
     agents,
     appliedAt: {},
   };
@@ -233,7 +279,7 @@ export function normalizeMCP(raw: unknown): MCPServer {
   };
 }
 
-export function normalizeSettings(raw: unknown): AgentSettings {
+export function normalizeSettings(raw: unknown, kind?: AgentKind): AgentSettings {
   const row = asRecord(raw);
   return {
     model: asString(row.model),
@@ -241,9 +287,52 @@ export function normalizeSettings(raw: unknown): AgentSettings {
     effortByModel: asStringMap(row.effortByModel),
     smallModel: asString(row.smallModel),
     pickedModelIDs: asStringArray(row.pickedModelIDs),
-    instructionOn: asBool(row.instructionOn, true),
+    instructionOn: asBool(row.instructionOn, kind ? agentSupportsProviders(kind) : true),
     mcpIDs: asStringArray(row.mcpIDs),
     profile: asString(row.profile),
+  };
+}
+
+function normalizePreset(raw: unknown): InstructionPreset {
+  const row = asRecord(raw);
+  return {
+    id: asString(row.id),
+    name: asString(row.name),
+    description: asString(row.description),
+    tags: asStringArray(row.tags),
+    content: asString(row.content),
+    updatedAt: asString(row.updatedAt),
+  };
+}
+
+function normalizeBinding(raw: unknown): InstructionBinding {
+  const row = asRecord(raw);
+  return {
+    targetId: asString(row.targetId),
+    enabled: asBool(row.enabled, false),
+    presetId: asString(row.presetId),
+    customPath: typeof row.customPath === "string" && row.customPath ? row.customPath : undefined,
+    lastSyncedHash: typeof row.lastSyncedHash === "string" && row.lastSyncedHash ? row.lastSyncedHash : undefined,
+    lastSyncedAt: typeof row.lastSyncedAt === "string" && row.lastSyncedAt ? row.lastSyncedAt : undefined,
+  };
+}
+
+function normalizeCustomTarget(raw: unknown): CustomInstructionTarget {
+  const row = asRecord(raw);
+  return {
+    id: asString(row.id),
+    name: asString(row.name),
+    path: asString(row.path),
+    kind: asString(row.kind, "custom"),
+  };
+}
+
+export function normalizeInstructions(raw: unknown): InstructionsState {
+  const row = asRecord(raw);
+  return {
+    presets: Array.isArray(row.presets) ? row.presets.map(normalizePreset) : [],
+    bindings: Array.isArray(row.bindings) ? row.bindings.map(normalizeBinding) : [],
+    customTargets: Array.isArray(row.customTargets) ? row.customTargets.map(normalizeCustomTarget) : [],
   };
 }
 
@@ -252,7 +341,7 @@ export function normalizeDocument(raw: unknown): AppDocument {
   const agents: Record<string, AgentSettings> = {};
   const agentsRaw = asRecord(row.agents);
   for (const kind of AGENT_KINDS) {
-    agents[kind] = agentsRaw[kind] ? normalizeSettings(agentsRaw[kind]) : emptySettings();
+    agents[kind] = agentsRaw[kind] ? normalizeSettings(agentsRaw[kind], kind) : emptySettings(kind);
   }
   const appliedAt: Record<string, string> = {};
   const appliedRaw = asRecord(row.appliedAt);
@@ -271,6 +360,7 @@ export function normalizeDocument(raw: unknown): AppDocument {
         ? (asRecord(row.library).mcp as unknown[]).map(normalizeMCP)
         : [],
     },
+    instructions: normalizeInstructions(row.instructions),
     agents,
     appliedAt,
   };
@@ -300,6 +390,18 @@ export function resolvedHint(kind: AgentKind, profile = ""): string {
       return "~/.pi/agent/models.json";
     case "omp":
       return "~/.omp/agent/models.yml";
+    case "antigravity":
+      return "~/.gemini/config/mcp_config.json · ~/.gemini/config/AGENTS.md";
+    case "claude":
+      return "~/.claude.json · ~/.claude/CLAUDE.md";
+    case "codex":
+      return "~/.codex/config.toml · ~/.codex/AGENTS.md";
+    case "gemini":
+      return "~/.gemini/settings.json · ~/.gemini/GEMINI.md";
+    case "cursor":
+      return "~/.cursor/mcp.json";
+    case "qwen":
+      return "~/.qwen/settings.json · ~/.qwen/QWEN.md";
   }
 }
 
@@ -335,7 +437,7 @@ export function setPicked(settings: AgentSettings, ref: string, on: boolean, cat
 }
 
 export function settingsFor(document: AppDocument, kind: AgentKind): AgentSettings {
-  return document.agents[kind] ? cloneDoc(document.agents[kind]) : emptySettings();
+  return document.agents[kind] ? cloneDoc(document.agents[kind]) : emptySettings(kind);
 }
 
 export function setSettings(document: AppDocument, kind: AgentKind, settings: AgentSettings): void {
@@ -503,6 +605,35 @@ export function invokeError(err: unknown): string {
     if (typeof message === "string" && message) return message;
   }
   return String(err);
+}
+
+export function resolvedSkillsDirHint(kind: AgentKind): string {
+  switch (kind) {
+    case "antigravity":
+      return "~/.gemini/config/skills";
+    case "claude":
+      return "~/.claude/skills";
+    case "codex":
+      return "~/.codex/skills";
+    case "gemini":
+      return "~/.gemini/skills";
+    case "opencode":
+      return "~/.config/opencode/skills";
+    case "cursor":
+      return "~/.cursor/skills";
+    case "qwen":
+      return "~/.qwen/skills";
+    case "pi":
+      return "~/.pi/agent/skills";
+    case "omp":
+      return "~/.omp/agent/skills";
+    case "dsh":
+      return "~/.dsh/skills";
+    case "zcode":
+      return "~/.zcode/skills";
+    case "grok":
+      return "~/.grok/skills";
+  }
 }
 
 export { EFFORT_LEVELS };

@@ -7,14 +7,21 @@ import {
   type AppDocument,
   type ApplyResult,
   type DetectEntry,
+  type DiscoveredDiskMcp,
+  type InstructionBackupEntry,
+  type InstructionBinding,
+  type InstructionPreset,
+  type InstructionSyncOutcome,
   type MCPServer,
   type ModelEntry,
   type Provider,
   type SidebarItem,
   type StoreToast,
+  type TargetScanRow,
 } from "./types";
 import {
   AGENT_TITLE,
+  agentSupportsProviders,
   catalogRefs,
   cloneDoc,
   deepEqual,
@@ -60,10 +67,15 @@ export class ConfigStore {
   selectedSidebar = $state<SidebarItem>("agents");
   selectedAgent = $state<AgentKind>("opencode");
   selectedProviderID = $state<string | null>(null);
+  selectedPresetID = $state<string | null>(null);
+  scannedTargets = $state<TargetScanRow[]>([]);
+  scanningTargets = $state(false);
   status = $state("");
   errorMessage = $state("");
   toast = $state<StoreToast | null>(null);
   isExporting = $state(false);
+  isSyncingMcp = $state(false);
+  isSyncingInstructions = $state(false);
   detector = $state<DetectEntry[]>([]);
   dshProfiles = $state<string[]>([]);
   loaded = $state(false);
@@ -93,6 +105,10 @@ export class ConfigStore {
     return rows.map((entry) => ({ kind: entry.kind as AgentKind, installed: entry.installed }));
   }
 
+  rankedProviderAgents(): { kind: AgentKind; installed: boolean }[] {
+    return this.rankedAgents().filter((row) => agentSupportsProviders(row.kind));
+  }
+
   isInstalled(kind: AgentKind): boolean {
     return this.detector.some((entry) => entry.kind === kind && entry.installed);
   }
@@ -102,10 +118,15 @@ export class ConfigStore {
       const entries = await invoke<DetectEntry[]>("config_detect");
       this.detector = Array.isArray(entries) ? entries : [];
       if (!this.loaded) {
-        const firstInstalled = this.detector.find((entry) => entry.installed && isAgentKind(entry.kind));
+        const firstInstalled = this.detector.find(
+          (entry) => entry.installed && isAgentKind(entry.kind) && agentSupportsProviders(entry.kind),
+        );
         if (firstInstalled && isAgentKind(firstInstalled.kind)) {
           this.selectedAgent = firstInstalled.kind;
         }
+      }
+      if (!agentSupportsProviders(this.selectedAgent)) {
+        this.selectedAgent = this.rankedProviderAgents()[0]?.kind ?? "opencode";
       }
     } catch (err) {
       this.errorMessage = invokeError(err);
@@ -140,8 +161,12 @@ export class ConfigStore {
       if (!this.selectedProviderID || !this.document.providers.some((provider) => provider.id === this.selectedProviderID)) {
         this.selectedProviderID = this.document.providers[0]?.id ?? null;
       }
+      if (!this.selectedPresetID || !this.document.instructions.presets.some((p) => p.id === this.selectedPresetID)) {
+        this.selectedPresetID = this.document.instructions.presets[0]?.id ?? null;
+      }
       await this.refreshDetector();
       await this.refreshDshProfiles();
+      await this.scanInstructionTargets();
       this.loaded = true;
       this.errorMessage = "";
     } catch (err) {
@@ -153,10 +178,14 @@ export class ConfigStore {
   }
 
   updateSelectedSettings(mutate: (settings: AgentSettings) => void): void {
+    this.updateAgentSettings(this.selectedAgent, mutate);
+  }
+
+  updateAgentSettings(kind: AgentKind, mutate: (settings: AgentSettings) => void): void {
     const next = cloneDoc(this.document);
-    const settings = settingsFor(next, this.selectedAgent);
+    const settings = settingsFor(next, kind);
     mutate(settings);
-    next.agents[this.selectedAgent] = settings;
+    next.agents[kind] = settings;
     this.document = next;
   }
 
@@ -578,12 +607,288 @@ export class ConfigStore {
     this.document = next;
   }
 
+  selectedPreset = $derived.by(() => {
+    const id = this.selectedPresetID;
+    if (!id) return null;
+    return this.document.instructions.presets.find((p) => p.id === id) ?? null;
+  });
+
+  addPreset(name?: string, content = "", description = ""): InstructionPreset {
+    const existing = new Set(this.document.instructions.presets.map((p) => p.id));
+    let n = this.document.instructions.presets.length + 1;
+    let id = `preset-${n}`;
+    while (existing.has(id)) {
+      n += 1;
+      id = `preset-${n}`;
+    }
+    const preset: InstructionPreset = {
+      id,
+      name: name?.trim() || `${t("inst_new_preset")} ${n}`,
+      description,
+      tags: [],
+      content,
+      updatedAt: new Date().toISOString(),
+    };
+    const next = cloneDoc(this.document);
+    next.instructions.presets.push(preset);
+    this.document = next;
+    this.selectedPresetID = preset.id;
+    return preset;
+  }
+
+  updatePreset(id: string, mutate: (preset: InstructionPreset) => void): void {
+    const next = cloneDoc(this.document);
+    const target = next.instructions.presets.find((p) => p.id === id);
+    if (!target) return;
+    mutate(target);
+    target.updatedAt = new Date().toISOString();
+    if (next.instructions.presets[0]?.id === id) {
+      next.library.instructions = target.content;
+    }
+    this.document = next;
+  }
+
+  removePreset(id: string): void {
+    const next = cloneDoc(this.document);
+    next.instructions.presets = next.instructions.presets.filter((p) => p.id !== id);
+    for (const binding of next.instructions.bindings) {
+      if (binding.presetId === id) {
+        binding.presetId = "";
+        binding.enabled = false;
+      }
+    }
+    this.document = next;
+    if (this.selectedPresetID === id) {
+      this.selectedPresetID = this.document.instructions.presets[0]?.id ?? null;
+    }
+  }
+
+  setTargetBinding(targetId: string, mutate: (binding: InstructionBinding) => void): void {
+    const next = cloneDoc(this.document);
+    let binding = next.instructions.bindings.find((b) => b.targetId === targetId);
+    if (!binding) {
+      binding = {
+        targetId,
+        enabled: true,
+        presetId: this.selectedPresetID ?? next.instructions.presets[0]?.id ?? "",
+      };
+      next.instructions.bindings.push(binding);
+    }
+    mutate(binding);
+    // Keep AgentSettings.instructionOn in sync for the 6 exportable agents
+    if (isAgentKind(targetId) && next.agents[targetId]) {
+      next.agents[targetId].instructionOn = binding.enabled;
+    }
+    this.document = next;
+  }
+
+  addCustomTarget(name: string, path: string, kind: "workspace" | "custom" = "custom", presetId = ""): void {
+    const trimmedPath = path.trim();
+    if (!trimmedPath) return;
+    const next = cloneDoc(this.document);
+    const existing = next.instructions.customTargets.find((c) => c.path === trimmedPath);
+    if (existing) {
+      if (presetId) {
+        const b = next.instructions.bindings.find((item) => item.targetId === existing.id);
+        if (b) {
+          b.enabled = true;
+          b.presetId = presetId;
+        }
+      }
+      this.document = next;
+      return;
+    }
+    const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    next.instructions.customTargets.push({
+      id,
+      name: name.trim() || trimmedPath.split("/").slice(-2).join("/"),
+      path: trimmedPath,
+      kind,
+    });
+    next.instructions.bindings.push({
+      targetId: id,
+      enabled: true,
+      presetId: presetId || this.selectedPresetID || next.instructions.presets[0]?.id || "",
+    });
+    this.document = next;
+  }
+
+  removeCustomTarget(id: string): void {
+    const next = cloneDoc(this.document);
+    next.instructions.customTargets = next.instructions.customTargets.filter((c) => c.id !== id);
+    next.instructions.bindings = next.instructions.bindings.filter((b) => b.targetId !== id);
+    this.document = next;
+  }
+
+  async scanInstructionTargets(): Promise<void> {
+    this.scanningTargets = true;
+    try {
+      const rows = await invoke<TargetScanRow[]>("instructions_scan_targets", {
+        state: this.document.instructions,
+      });
+      this.scannedTargets = Array.isArray(rows) ? rows : [];
+    } catch (err) {
+      this.errorMessage = invokeError(err);
+    } finally {
+      this.scanningTargets = false;
+    }
+  }
+
+  async readTargetFile(targetId: string): Promise<string> {
+    return invoke<string>("instructions_read_target", {
+      state: this.document.instructions,
+      targetId,
+    });
+  }
+
+  async syncInstructionTargets(targetIds: string[]): Promise<InstructionSyncOutcome | null> {
+    try {
+      const [updatedDoc, outcome] = await invoke<[AppDocument, InstructionSyncOutcome]>(
+        "instructions_sync_targets",
+        {
+          document: this.document,
+          targetIds,
+        },
+      );
+      this.document = normalizeDocument(updatedDoc);
+      this.baseline = cloneDoc(this.document);
+      await this.scanInstructionTargets();
+      if (outcome.written.length > 0) {
+        const lines = [...outcome.written];
+        if (outcome.backups?.length) {
+          lines.push(t("cfg_toast_backups", { n: outcome.backups.length }));
+        }
+        this.show({
+          title: t("inst_sync_success", { n: outcome.written.length }),
+          detail: lines.join("\n"),
+          isError: false,
+          revealedPath: outcome.written[0] ?? "",
+        });
+      } else {
+        const hasBound = this.document.instructions.bindings.some((b) => b.enabled && b.presetId);
+        this.show({
+          title: hasBound ? t("inst_sync_noop") : t("inst_saved_no_targets"),
+          detail: "",
+          isError: false,
+          revealedPath: "",
+        });
+      }
+      return outcome;
+    } catch (err) {
+      const msg = invokeError(err);
+      this.errorMessage = msg;
+      this.show({ title: t("cfg_save_failed"), detail: msg, isError: true, revealedPath: "" });
+      return null;
+    }
+  }
+
+  async saveAndSyncInstructions(): Promise<void> {
+    this.errorMessage = "";
+    this.isSyncingInstructions = true;
+    try {
+      await this.syncInstructionTargets([]);
+    } finally {
+      this.isSyncingInstructions = false;
+    }
+  }
+
+  async saveAndSyncMcp(): Promise<void> {
+    this.errorMessage = "";
+    this.isSyncingMcp = true;
+    try {
+      const result = await invoke<ApplyResult>("config_sync_mcp", { document: this.document });
+      this.document = normalizeDocument(result.document);
+      this.baseline = cloneDoc(this.document);
+      if (result.written.length > 0) {
+        const lines = [...result.written];
+        if (result.backups?.length) {
+          lines.push(t("cfg_toast_backups", { n: result.backups.length }));
+        }
+        this.status = t("mcp_sync_success", { n: result.written.length });
+        this.show({
+          title: t("mcp_sync_success", { n: result.written.length }),
+          detail: lines.join("\n"),
+          isError: false,
+          revealedPath: result.written[0] ?? "",
+        });
+      } else {
+        this.status = t("mcp_sync_noop");
+        this.show({
+          title: t("mcp_sync_noop"),
+          detail: "",
+          isError: false,
+          revealedPath: "",
+        });
+      }
+    } catch (err) {
+      this.errorMessage = invokeError(err);
+      this.status = "";
+      this.show({
+        title: t("cfg_export_failed"),
+        detail: this.errorMessage,
+        isError: true,
+        revealedPath: "",
+      });
+    } finally {
+      this.isSyncingMcp = false;
+    }
+  }
+
+  async listTargetBackups(targetId: string): Promise<InstructionBackupEntry[]> {
+    return invoke<InstructionBackupEntry[]>("instructions_list_backups", {
+      state: this.document.instructions,
+      targetId,
+    });
+  }
+
+  async restoreTargetBackup(targetId: string, backupPath: string): Promise<string> {
+    const restored = await invoke<string>("instructions_restore_backup", {
+      state: this.document.instructions,
+      targetId,
+      backupPath,
+    });
+    await this.scanInstructionTargets();
+    this.show({
+      title: t("inst_restore_backup"),
+      detail: targetId,
+      isError: false,
+      revealedPath: "",
+    });
+    return restored;
+  }
+
   updateMCP(id: string, mutate: (server: MCPServer) => void): void {
     const next = cloneDoc(this.document);
     const index = next.library.mcp.findIndex((server) => server.id === id);
     if (index < 0) return;
     mutate(next.library.mcp[index]);
     this.document = next;
+  }
+
+  async scanDiskMcp(): Promise<DiscoveredDiskMcp[]> {
+    const hits = await invoke<DiscoveredDiskMcp[]>("config_scan_disk_mcp", {
+      document: this.document,
+    });
+    return Array.isArray(hits) ? hits : [];
+  }
+
+  importDiskMcp(entry: DiscoveredDiskMcp): void {
+    const server = normalizeMCP(entry.server);
+    if (!server.id) return;
+    const next = cloneDoc(this.document);
+    const index = next.library.mcp.findIndex((item) => item.id === server.id);
+    if (index >= 0) next.library.mcp[index] = server;
+    else next.library.mcp.push(server);
+    for (const rawKind of entry.agents) {
+      if (!isAgentKind(rawKind)) continue;
+      const settings = settingsFor(next, rawKind);
+      if (!settings.mcpIDs.includes(server.id)) {
+        settings.mcpIDs = [...settings.mcpIDs, server.id];
+        next.agents[rawKind] = settings;
+      }
+    }
+    this.document = next;
+    this.status = t("cfg_added_remember", { id: server.id });
   }
 
   async revealPath(path: string): Promise<void> {

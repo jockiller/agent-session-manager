@@ -1,12 +1,16 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use super::agents;
 use super::display_name;
 use super::endpoint;
 use super::fileio::{
-    expand_user_path, prune_backups, write_instruction_file, ApplyError, WriteSession,
+    expand_user_path, prune_backups, read_json_object, read_text, write_instruction_file,
+    ApplyError, WriteSession,
 };
+use super::mcp_parser;
 use super::models::{
     sanitize_dsh_profile, APIKind, AgentKind, AgentSettings, AppDocument, MCPServer, ModelEntry,
     Provider, model_ref,
@@ -70,8 +74,68 @@ impl AgentPaths {
                     extra: None,
                 }
             }
+            AgentKind::Antigravity => {
+                let root = env_directory(env, "GEMINI_HOME", home, ".gemini").join("config");
+                Self {
+                    config: root.join("mcp_config.json"),
+                    instructions: root.join("AGENTS.md"),
+                    extra: None,
+                }
+            }
+            AgentKind::Claude => {
+                if let Some(raw) = env.get("CLAUDE_CONFIG_DIR").filter(|s| !s.trim().is_empty()) {
+                    let dir = expand_user_path(raw, home);
+                    Self {
+                        config: dir.join(".claude.json"),
+                        instructions: dir.join("CLAUDE.md"),
+                        extra: None,
+                    }
+                } else {
+                    Self {
+                        config: home.join(".claude.json"),
+                        instructions: home.join(".claude/CLAUDE.md"),
+                        extra: None,
+                    }
+                }
+            }
+            AgentKind::Codex => {
+                let root = env_directory(env, "CODEX_HOME", home, ".codex");
+                Self {
+                    config: root.join("config.toml"),
+                    instructions: root.join("AGENTS.md"),
+                    extra: None,
+                }
+            }
+            AgentKind::Gemini => {
+                let root = env_directory(env, "GEMINI_HOME", home, ".gemini");
+                Self {
+                    config: root.join("settings.json"),
+                    instructions: root.join("GEMINI.md"),
+                    extra: None,
+                }
+            }
+            AgentKind::Cursor => Self {
+                config: home.join(".cursor/mcp.json"),
+                instructions: PathBuf::new(),
+                extra: None,
+            },
+            AgentKind::Qwen => {
+                let root = env_directory(env, "QWEN_HOME", home, ".qwen");
+                Self {
+                    config: root.join("settings.json"),
+                    instructions: root.join("QWEN.md"),
+                    extra: None,
+                }
+            }
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyScope {
+    Full,
+    ProvidersOnly,
+    McpOnly,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,9 +147,20 @@ pub struct ApplyRequest {
     pub settings: AgentSettings,
     pub instructions: String,
     pub mcp: Vec<MCPServer>,
+    pub managed_mcp_ids: Vec<String>,
+    pub write_providers: bool,
+    pub write_mcp: bool,
+    pub write_instructions: bool,
 }
 
 impl ApplyRequest {
+    pub fn managed_mcp_set(&self) -> HashSet<&str> {
+        self.managed_mcp_ids
+            .iter()
+            .chain(self.settings.mcp_ids.iter())
+            .map(String::as_str)
+            .collect()
+    }
     pub fn prune_urls(&self) -> HashSet<String> {
         let mut combined = self.providers.clone();
         combined.extend(self.retired.iter().cloned());
@@ -216,6 +291,14 @@ fn filter_google_efforts(provider: &mut Provider) {
 }
 
 pub fn apply_request(document: &AppDocument, kind: AgentKind) -> ApplyRequest {
+    apply_request_with_scope(document, kind, ApplyScope::Full)
+}
+
+pub fn apply_request_with_scope(
+    document: &AppDocument,
+    kind: AgentKind,
+    scope: ApplyScope,
+) -> ApplyRequest {
     let settings = document.settings(kind);
     let catalog = document.catalog_refs();
     let mut filtered = Vec::new();
@@ -269,18 +352,36 @@ pub fn apply_request(document: &AppDocument, kind: AgentKind) -> ApplyRequest {
         .filter(|server| settings.mcp_ids.contains(&server.id))
         .cloned()
         .collect();
+    let managed_mcp_ids = document
+        .library
+        .mcp
+        .iter()
+        .map(|server| server.id.clone())
+        .collect();
     let keys = filtered
         .iter()
         .map(|provider| (provider.id.clone(), provider.api_key.clone()))
         .collect();
+    let (resolved_instructions, binding_enabled) = document.resolved_instructions_for(kind);
+    let mut final_settings = settings;
+    final_settings.instruction_on = final_settings.instruction_on && binding_enabled;
+    let (write_providers, write_mcp, write_instructions) = match scope {
+        ApplyScope::Full => (true, true, true),
+        ApplyScope::ProvidersOnly => (true, false, false),
+        ApplyScope::McpOnly => (false, true, false),
+    };
     ApplyRequest {
         kind,
         providers: filtered,
         retired,
         keys,
-        settings,
-        instructions: document.library.instructions.clone(),
+        settings: final_settings,
+        instructions: resolved_instructions,
         mcp,
+        managed_mcp_ids,
+        write_providers,
+        write_mcp,
+        write_instructions,
     }
 }
 
@@ -315,7 +416,18 @@ pub fn apply(
     env: &HashMap<String, String>,
     backups_root: &Path,
 ) -> Result<ApplyOutcome, ApplyError> {
-    let request = apply_request(document, kind);
+    apply_with_scope(document, kind, ApplyScope::Full, home, env, backups_root)
+}
+
+pub fn apply_with_scope(
+    document: &AppDocument,
+    kind: AgentKind,
+    scope: ApplyScope,
+    home: &Path,
+    env: &HashMap<String, String>,
+    backups_root: &Path,
+) -> Result<ApplyOutcome, ApplyError> {
+    let request = apply_request_with_scope(document, kind, scope);
     let paths = AgentPaths::live(kind, home, &request.settings.profile, env);
     let mut session = WriteSession::new(backups_root, home);
     {
@@ -324,13 +436,64 @@ pub fn apply(
             env,
             session: &mut session,
         };
-        match kind {
-            AgentKind::Opencode => agents::opencode::apply(&request, &paths, &mut ctx)?,
-            AgentKind::Zcode => agents::zcode::apply(&request, &paths, &mut ctx)?,
-            AgentKind::Grok => agents::grok::apply(&request, &paths, &mut ctx)?,
-            AgentKind::Dsh => agents::dsh::apply(&request, &paths, &mut ctx)?,
-            AgentKind::Pi => agents::pi::apply(&request, &paths, &mut ctx)?,
-            AgentKind::Omp => agents::omp::apply(&request, &paths, &mut ctx)?,
+        apply_with_session(&request, &paths, &mut ctx)?;
+    }
+    if !session.backups.is_empty() {
+        prune_backups(backups_root, 20)?;
+    }
+    Ok(ApplyOutcome {
+        written: session.written,
+        backups: session.backups,
+    })
+}
+
+fn agent_mcp_file_exists(kind: AgentKind, paths: &AgentPaths) -> bool {
+    match kind {
+        AgentKind::Pi | AgentKind::Omp => agents::pi::sibling(&paths.config, "mcp.json").exists(),
+        AgentKind::Zcode => {
+            paths.config.exists()
+                || paths
+                    .config
+                    .parent()
+                    .and_then(Path::parent)
+                    .is_some_and(|root| root.join("cli/config.json").exists())
+        }
+        _ => paths.config.exists(),
+    }
+}
+
+pub fn sync_mcp_all(
+    document: &AppDocument,
+    extra_managed_mcp_ids: &[String],
+    home: &Path,
+    env: &HashMap<String, String>,
+    backups_root: &Path,
+) -> Result<ApplyOutcome, ApplyError> {
+    let mut session = WriteSession::new(backups_root, home);
+    {
+        let mut ctx = ApplyContext {
+            home,
+            env,
+            session: &mut session,
+        };
+        for kind in AgentKind::ALL {
+            let mut request = apply_request_with_scope(document, kind, ApplyScope::McpOnly);
+            for id in extra_managed_mcp_ids {
+                if !request.managed_mcp_ids.iter().any(|existing| existing == id) {
+                    request.managed_mcp_ids.push(id.clone());
+                }
+            }
+            let paths = AgentPaths::live(kind, home, &request.settings.profile, env);
+            if request.mcp.is_empty() && !agent_mcp_file_exists(kind, &paths) {
+                continue;
+            }
+            if kind == AgentKind::Dsh
+                && !paths.instructions.parent().is_some_and(|p| p.exists())
+                && request.mcp.is_empty()
+            {
+                continue;
+            }
+            apply_with_session(&request, &paths, &mut ctx)?;
         }
     }
     if !session.backups.is_empty() {
@@ -340,6 +503,129 @@ pub fn apply(
         written: session.written,
         backups: session.backups,
     })
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredDiskMcp {
+    pub server: MCPServer,
+    pub agents: Vec<String>,
+    pub in_library: bool,
+}
+
+pub fn scan_agent_mcp(kind: AgentKind, paths: &AgentPaths) -> Vec<MCPServer> {
+    match kind {
+        AgentKind::Antigravity
+        | AgentKind::Claude
+        | AgentKind::Gemini
+        | AgentKind::Cursor
+        | AgentKind::Qwen => {
+            mcp_parser::parse_agent_mcp_json(&read_json_object(&paths.config), &["mcpServers"])
+        }
+        AgentKind::Pi | AgentKind::Omp => {
+            let mcp_path = agents::pi::sibling(&paths.config, "mcp.json");
+            mcp_parser::parse_agent_mcp_json(&read_json_object(&mcp_path), &["mcpServers"])
+        }
+        AgentKind::Opencode => {
+            mcp_parser::parse_agent_mcp_json(&read_json_object(&paths.config), &["mcp"])
+        }
+        AgentKind::Zcode => {
+            let mut list =
+                mcp_parser::parse_agent_mcp_json(&read_json_object(&paths.config), &["mcp"]);
+            let seen: HashSet<String> = list.iter().map(|s| s.id.clone()).collect();
+            if let Some(cli) = paths
+                .config
+                .parent()
+                .and_then(Path::parent)
+                .map(|root| root.join("cli/config.json"))
+            {
+                if let Some(serde_json::Value::Object(mcp_obj)) = read_json_object(&cli).get("mcp") {
+                    for srv in mcp_parser::parse_agent_mcp_json(mcp_obj, &["servers"]) {
+                        if !seen.contains(&srv.id) {
+                            list.push(srv);
+                        }
+                    }
+                }
+            }
+            list.sort_by(|a, b| a.id.cmp(&b.id));
+            list
+        }
+        AgentKind::Codex | AgentKind::Grok => {
+            mcp_parser::parse_agent_mcp_toml(&read_text(&paths.config))
+        }
+        AgentKind::Dsh => agents::dsh::scan_mcp(&read_text(&paths.config)),
+    }
+}
+
+fn match_library_mcp_id(kind: AgentKind, disk_id: &str, library: &[MCPServer]) -> Option<String> {
+    library.iter().find_map(|lib| {
+        let matches = lib.id == disk_id
+            || ((kind == AgentKind::Pi || kind == AgentKind::Omp)
+                && agents::pi::sanitize_mcp_name(&lib.id) == disk_id)
+            || (kind == AgentKind::Dsh && agents::dsh::sanitize_mcp(&lib.id) == disk_id);
+        matches.then(|| lib.id.clone())
+    })
+}
+
+pub fn reconcile_disk_mcp(
+    document: &mut AppDocument,
+    home: &Path,
+    env: &HashMap<String, String>,
+) -> bool {
+    document.ensure_agent_defaults();
+    let mut changed = false;
+    for kind in AgentKind::ALL {
+        let profile = document.settings(kind).profile;
+        let paths = AgentPaths::live(kind, home, &profile, env);
+        let disk_servers = scan_agent_mcp(kind, &paths);
+        if disk_servers.is_empty() {
+            continue;
+        }
+        let mut matched_ids = Vec::new();
+        for disk_srv in &disk_servers {
+            if let Some(lib_id) = match_library_mcp_id(kind, &disk_srv.id, &document.library.mcp) {
+                matched_ids.push(lib_id);
+            }
+        }
+        if let Some(settings) = document.agents.get_mut(kind.raw()) {
+            for lib_id in matched_ids {
+                if !settings.mcp_ids.contains(&lib_id) {
+                    settings.mcp_ids.push(lib_id);
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed
+}
+
+pub fn scan_all_disk_mcp(
+    document: &AppDocument,
+    home: &Path,
+    env: &HashMap<String, String>,
+) -> Vec<DiscoveredDiskMcp> {
+    let mut by_id: BTreeMap<String, DiscoveredDiskMcp> = BTreeMap::new();
+    let library_ids: HashSet<&str> = document.library.mcp.iter().map(|s| s.id.as_str()).collect();
+    for kind in AgentKind::ALL {
+        let profile = document.settings(kind).profile;
+        let paths = AgentPaths::live(kind, home, &profile, env);
+        for mut srv in scan_agent_mcp(kind, &paths) {
+            let normalized_id = match_library_mcp_id(kind, &srv.id, &document.library.mcp)
+                .unwrap_or_else(|| srv.id.clone());
+            srv.id = normalized_id.clone();
+            let in_library = library_ids.contains(normalized_id.as_str());
+            let entry = by_id.entry(normalized_id).or_insert_with(|| DiscoveredDiskMcp {
+                server: srv,
+                agents: Vec::new(),
+                in_library,
+            });
+            let raw_kind = kind.raw().to_string();
+            if !entry.agents.contains(&raw_kind) {
+                entry.agents.push(raw_kind);
+            }
+        }
+    }
+    by_id.into_values().collect()
 }
 
 pub fn apply_with_session(
@@ -354,6 +640,12 @@ pub fn apply_with_session(
         AgentKind::Dsh => agents::dsh::apply(request, paths, ctx),
         AgentKind::Pi => agents::pi::apply(request, paths, ctx),
         AgentKind::Omp => agents::omp::apply(request, paths, ctx),
+        AgentKind::Antigravity
+        | AgentKind::Claude
+        | AgentKind::Codex
+        | AgentKind::Gemini
+        | AgentKind::Cursor
+        | AgentKind::Qwen => agents::mcp_only::apply(request, paths, ctx),
     }
 }
 
@@ -738,5 +1030,263 @@ api_backend = "chat_completions"
         assert!(!providers.contains_key("disabled_p"));
         assert!(!providers.contains_key("deleted_p"));
         assert_eq!(exported["model"], "a/m1");
+    }
+
+    #[test]
+    fn providers_only_preserves_mcp_and_instructions() {
+        let dir = TestDir::new("providers_only_iso");
+        let home = dir.path();
+        let empty = HashMap::new();
+        let backups = home.join("asm-backups");
+
+        // Pre-populate Opencode, Grok, Pi, DSH, ZCode with existing MCP & AGENTS.md
+        let oc = AgentPaths::live(AgentKind::Opencode, home, "", &empty);
+        std::fs::create_dir_all(oc.config.parent().unwrap()).unwrap();
+        std::fs::write(&oc.config, r#"{"mcp":{"keep_oc":{"type":"local","command":["npx","oc"]}}}"#).unwrap();
+        std::fs::write(&oc.instructions, "# Keep OpenCode Rules\n").unwrap();
+
+        let grok = AgentPaths::live(AgentKind::Grok, home, "", &empty);
+        std::fs::create_dir_all(grok.config.parent().unwrap()).unwrap();
+        std::fs::write(&grok.config, "[mcp_servers.foo]\ncommand = \"npx\"\n").unwrap();
+        std::fs::write(&grok.instructions, "# Keep Grok Rules\n").unwrap();
+
+        let pi = AgentPaths::live(AgentKind::Pi, home, "", &empty);
+        std::fs::create_dir_all(pi.config.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(pi.instructions.parent().unwrap()).unwrap();
+        let pi_mcp = pi.config.parent().unwrap().join("mcp.json");
+        std::fs::write(&pi_mcp, r#"{"mcpServers":{"keep_pi":{"command":"npx"}}}"#).unwrap();
+        std::fs::write(&pi.instructions, "# Keep Pi Rules\n").unwrap();
+
+        let dsh = AgentPaths::live(AgentKind::Dsh, home, "web", &empty);
+        std::fs::create_dir_all(dsh.config.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(dsh.instructions.parent().unwrap()).unwrap();
+        std::fs::write(&dsh.config, "- insert:\n  - id: mcp-keep\n    name: dsh-mcp-client\n    config:\n      serverName: keep\n").unwrap();
+        std::fs::write(&dsh.instructions, "# Keep DSH Rules\n").unwrap();
+
+        let zcode = AgentPaths::live(AgentKind::Zcode, home, "", &empty);
+        std::fs::create_dir_all(zcode.config.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(zcode.instructions.parent().unwrap()).unwrap();
+        std::fs::write(&zcode.config, r#"{"mcp":{"keep_zc":{"type":"local","command":["npx"]}}}"#).unwrap();
+        std::fs::write(&zcode.instructions, "# Keep ZCode Rules\n").unwrap();
+
+        let mut doc = AppDocument::default();
+        let mut p = Provider::new("p1", "P1", "https://api.example/v1");
+        p.api_key = "sk-test".into();
+        p.models = vec![ModelEntry::new("m1", "M1")];
+        doc.providers = vec![p];
+        doc.library.instructions = "# Overwrite attempt".into();
+        doc.library.mcp = vec![MCPServer {
+            id: "keep_oc".into(),
+            transport: crate::config::models::MCPTransport::Stdio,
+            command: "node".into(),
+            args: vec![],
+            url: String::new(),
+            env: BTreeMap::new(),
+        }];
+
+        for kind in [
+            AgentKind::Opencode,
+            AgentKind::Grok,
+            AgentKind::Pi,
+            AgentKind::Dsh,
+            AgentKind::Zcode,
+        ] {
+            apply_with_scope(&doc, kind, ApplyScope::ProvidersOnly, home, &empty, &backups).unwrap();
+        }
+
+        let oc_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&oc.config).unwrap()).unwrap();
+        assert!(oc_json["providers"]["p1"].is_object());
+        assert!(oc_json["mcp"]["keep_oc"].is_object());
+        assert_eq!(std::fs::read_to_string(&oc.instructions).unwrap(), "# Keep OpenCode Rules\n");
+
+        let grok_text = std::fs::read_to_string(&grok.config).unwrap();
+        assert!(grok_text.contains("[model.\"m1\"]"));
+        assert!(grok_text.contains("[mcp_servers.foo]"));
+        assert_eq!(std::fs::read_to_string(&grok.instructions).unwrap(), "# Keep Grok Rules\n");
+
+        assert!(std::fs::read_to_string(&pi_mcp).unwrap().contains("keep_pi"));
+        assert_eq!(std::fs::read_to_string(&pi.instructions).unwrap(), "# Keep Pi Rules\n");
+
+        assert!(std::fs::read_to_string(&dsh.config).unwrap().contains("id: mcp-keep"));
+        assert_eq!(std::fs::read_to_string(&dsh.instructions).unwrap(), "# Keep DSH Rules\n");
+
+        let zc_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&zcode.config).unwrap()).unwrap();
+        assert!(zc_json["provider"]["p1"].is_object());
+        assert!(zc_json["mcp"]["keep_zc"].is_object());
+        assert_eq!(std::fs::read_to_string(&zcode.instructions).unwrap(), "# Keep ZCode Rules\n");
+    }
+
+    #[test]
+    fn mcp_only_sync_all_preserves_providers_and_instructions_and_prunes_unchecked() {
+        let dir = TestDir::new("mcp_only_iso");
+        let home = dir.path();
+        let empty = HashMap::new();
+        let backups = home.join("asm-backups");
+
+        let oc = AgentPaths::live(AgentKind::Opencode, home, "", &empty);
+        std::fs::create_dir_all(oc.config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &oc.config,
+            r#"{"providers":{"orig":{"npm":"@ai-sdk/openai"}},"model":"orig/m1"}"#,
+        )
+        .unwrap();
+        std::fs::write(&oc.instructions, "# Orig OpenCode\n").unwrap();
+
+        let agy = AgentPaths::live(AgentKind::Antigravity, home, "", &empty);
+        std::fs::create_dir_all(agy.config.parent().unwrap()).unwrap();
+        std::fs::write(&agy.config, r#"{"mcpServers":{"foreign":{"command":"uvx"}}}"#).unwrap();
+        std::fs::write(&agy.instructions, "# Orig Agy\n").unwrap();
+
+        let claude = AgentPaths::live(AgentKind::Claude, home, "", &empty);
+        let raw_claude = "{\n  \"mcpServers\": {\n    \"custom\": {\"command\": \"echo\"}\n  }\n}\n";
+        std::fs::write(&claude.config, raw_claude).unwrap();
+
+        let mut doc = AppDocument::default();
+        doc.library.instructions = "# Should not be written by sync_mcp_all".into();
+        doc.library.mcp = vec![MCPServer {
+            id: "demo".into(),
+            transport: crate::config::models::MCPTransport::Stdio,
+            command: "npx".into(),
+            args: vec!["demo-mcp".into()],
+            url: String::new(),
+            env: BTreeMap::new(),
+        }];
+        doc.set_settings(
+            AgentSettings {
+                mcp_ids: vec!["demo".into()],
+                ..AgentSettings::default()
+            },
+            AgentKind::Opencode,
+        );
+        doc.set_settings(
+            AgentSettings {
+                mcp_ids: vec!["demo".into()],
+                ..AgentSettings::default()
+            },
+            AgentKind::Antigravity,
+        );
+
+        let first = sync_mcp_all(&doc, &[], home, &empty, &backups).unwrap();
+        assert!(first.written.contains(&oc.config));
+        assert!(first.written.contains(&agy.config));
+        assert!(!first.written.contains(&claude.config));
+
+        let oc_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&oc.config).unwrap()).unwrap();
+        assert_eq!(oc_json["model"], "orig/m1");
+        assert!(oc_json["providers"]["orig"].is_object());
+        assert!(oc_json["mcp"]["demo"].is_object());
+        assert_eq!(std::fs::read_to_string(&oc.instructions).unwrap(), "# Orig OpenCode\n");
+
+        let agy_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&agy.config).unwrap()).unwrap();
+        assert!(agy_json["mcpServers"]["demo"].is_object());
+        assert!(agy_json["mcpServers"]["foreign"].is_object());
+        assert_eq!(std::fs::read_to_string(&agy.instructions).unwrap(), "# Orig Agy\n");
+        assert_eq!(std::fs::read_to_string(&claude.config).unwrap(), raw_claude);
+
+        // Uncheck demo from Antigravity and sync again: demo must be pruned while foreign stays
+        doc.set_settings(AgentSettings::default(), AgentKind::Antigravity);
+        let second = sync_mcp_all(&doc, &[], home, &empty, &backups).unwrap();
+        assert!(second.written.contains(&agy.config));
+        let agy_after: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&agy.config).unwrap()).unwrap();
+        assert!(!agy_after["mcpServers"].as_object().unwrap().contains_key("demo"));
+        assert!(agy_after["mcpServers"]["foreign"].is_object());
+    }
+
+    #[test]
+    fn reconcile_disk_mcp_discovers_antigravity_and_respects_disabled() {
+        let dir = TestDir::new("reconcile_disk_mcp");
+        let home = dir.path();
+        let empty = HashMap::new();
+
+        let agy = AgentPaths::live(AgentKind::Antigravity, home, "", &empty);
+        std::fs::create_dir_all(agy.config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &agy.config,
+            r#"{
+  "mcpServers": {
+    "dbx": { "command": "/Users/test/.dbx/bin/dbx-mcp", "disabled": false },
+    "off": { "command": "npx", "disabled": true },
+    "foreign-only": { "command": "uvx" }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let codex = AgentPaths::live(AgentKind::Codex, home, "", &empty);
+        std::fs::create_dir_all(codex.config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &codex.config,
+            "[models]\ndefault = \"gpt-5\"\n\n[mcp_servers.dbx]\ncommand = \"dbx-mcp\"\n",
+        )
+        .unwrap();
+
+        let mut doc = AppDocument::default();
+        doc.library.mcp = vec![
+            MCPServer {
+                id: "dbx".into(),
+                transport: crate::config::models::MCPTransport::Stdio,
+                command: "/Users/test/.dbx/bin/dbx-mcp".into(),
+                args: vec![],
+                url: String::new(),
+                env: BTreeMap::new(),
+            },
+            MCPServer {
+                id: "off".into(),
+                transport: crate::config::models::MCPTransport::Stdio,
+                command: "npx".into(),
+                args: vec![],
+                url: String::new(),
+                env: BTreeMap::new(),
+            },
+        ];
+
+        assert!(reconcile_disk_mcp(&mut doc, home, &empty));
+        assert_eq!(doc.settings(AgentKind::Antigravity).mcp_ids, vec!["dbx".to_string()]);
+        assert_eq!(doc.settings(AgentKind::Codex).mcp_ids, vec!["dbx".to_string()]);
+        assert!(!doc.settings(AgentKind::Antigravity).mcp_ids.contains(&"foreign-only".to_string()));
+        assert!(!reconcile_disk_mcp(&mut doc, home, &empty));
+    }
+
+    #[test]
+    fn scan_all_disk_mcp_groups_agents_and_marks_in_library() {
+        let dir = TestDir::new("scan_all_disk_mcp");
+        let home = dir.path();
+        let empty = HashMap::new();
+
+        let agy = AgentPaths::live(AgentKind::Antigravity, home, "", &empty);
+        std::fs::create_dir_all(agy.config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &agy.config,
+            r#"{"mcpServers":{"dbx":{"command":"dbx-mcp","disabled":false},"extra":{"url":"https://e.example/mcp"}}}"#,
+        )
+        .unwrap();
+
+        let oc = AgentPaths::live(AgentKind::Opencode, home, "", &empty);
+        std::fs::create_dir_all(oc.config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &oc.config,
+            r#"{"mcp":{"dbx":{"type":"local","command":["dbx-mcp"]}}}"#,
+        )
+        .unwrap();
+
+        let mut doc = AppDocument::default();
+        doc.library.mcp = vec![MCPServer {
+            id: "dbx".into(),
+            transport: crate::config::models::MCPTransport::Stdio,
+            command: "dbx-mcp".into(),
+            args: vec![],
+            url: String::new(),
+            env: BTreeMap::new(),
+        }];
+
+        let found = scan_all_disk_mcp(&doc, home, &empty);
+        let dbx = found.iter().find(|item| item.server.id == "dbx").unwrap();
+        assert!(dbx.in_library);
+        assert!(dbx.agents.contains(&"antigravity".to_string()));
+        assert!(dbx.agents.contains(&"opencode".to_string()));
+
+        let extra = found.iter().find(|item| item.server.id == "extra").unwrap();
+        assert!(!extra.in_library);
+        assert_eq!(extra.agents, vec!["antigravity".to_string()]);
     }
 }

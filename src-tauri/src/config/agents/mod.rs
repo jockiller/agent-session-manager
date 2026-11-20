@@ -1,5 +1,6 @@
 pub mod dsh;
 pub mod grok;
+pub mod mcp_only;
 pub mod omp;
 pub mod opencode;
 pub mod pi;

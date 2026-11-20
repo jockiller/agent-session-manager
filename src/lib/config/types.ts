@@ -1,6 +1,33 @@
-export type AgentKind = "opencode" | "dsh" | "zcode" | "grok" | "pi" | "omp";
+export type AgentKind =
+  | "opencode"
+  | "dsh"
+  | "zcode"
+  | "grok"
+  | "pi"
+  | "omp"
+  | "antigravity"
+  | "claude"
+  | "codex"
+  | "gemini"
+  | "cursor"
+  | "qwen";
 
-export const AGENT_KINDS: AgentKind[] = ["opencode", "dsh", "zcode", "grok", "pi", "omp"];
+export const PROVIDER_AGENT_KINDS: AgentKind[] = ["opencode", "dsh", "zcode", "grok", "pi", "omp"];
+
+export const AGENT_KINDS: AgentKind[] = [
+  "opencode",
+  "dsh",
+  "zcode",
+  "grok",
+  "pi",
+  "omp",
+  "antigravity",
+  "claude",
+  "codex",
+  "gemini",
+  "cursor",
+  "qwen",
+];
 
 export type APIKind = "responses" | "completions" | "anthropic" | "google";
 
@@ -66,9 +93,84 @@ export type MCPServer = {
   env: Record<string, string>;
 };
 
+export type DiscoveredDiskMcp = {
+  server: MCPServer;
+  agents: string[];
+  inLibrary: boolean;
+};
+
 export type Library = {
   instructions: string;
   mcp: MCPServer[];
+};
+
+export type InstructionPreset = {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  content: string;
+  updatedAt: string;
+};
+
+export type InstructionBinding = {
+  targetId: string;
+  enabled: boolean;
+  presetId: string;
+  customPath?: string;
+  lastSyncedHash?: string;
+  lastSyncedAt?: string;
+};
+
+export type CustomInstructionTarget = {
+  id: string;
+  name: string;
+  path: string;
+  kind: string;
+};
+
+export type InstructionsState = {
+  presets: InstructionPreset[];
+  bindings: InstructionBinding[];
+  customTargets: CustomInstructionTarget[];
+};
+
+export type InstructionSyncStatus =
+  | "synced"
+  | "pending"
+  | "conflict"
+  | "disabled"
+  | "uninstalled";
+
+export type TargetScanRow = {
+  targetId: string;
+  name: string;
+  path: string;
+  fileName: string;
+  isBuiltin: boolean;
+  kind: string;
+  installed: boolean;
+  fileExists: boolean;
+  diskHash?: string;
+  diskPreview: string;
+  status: InstructionSyncStatus;
+  enabled: boolean;
+  presetId: string;
+  lastSyncedHash?: string;
+  lastSyncedAt?: string;
+};
+
+export type InstructionBackupEntry = {
+  stamp: string;
+  backupPath: string;
+  sizeBytes: number;
+  modifiedMs: number;
+};
+
+export type InstructionSyncOutcome = {
+  written: string[];
+  backups: string[];
+  updatedBindings: InstructionBinding[];
 };
 
 export type AgentSettings = {
@@ -88,6 +190,7 @@ export type AppDocument = {
   providers: Provider[];
   retiredProviders?: Provider[];
   library: Library;
+  instructions: InstructionsState;
   agents: Record<string, AgentSettings>;
   appliedAt: Record<string, string>;
 };
@@ -114,4 +217,88 @@ export type StoreToast = {
   detail: string;
   isError: boolean;
   revealedPath: string;
+};
+
+export type SkillFileInfo = {
+  relPath: string;
+  sizeBytes: number;
+};
+
+export type SkillSourceMeta = {
+  kind: string;
+  repo: string;
+  branch: string;
+  subpath: string;
+  url: string;
+  commit: string;
+  fetchedAt: string;
+};
+
+export type SkillEntry = {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  skillMdPath: string;
+  content: string;
+  extraFiles: SkillFileInfo[];
+  linkedAgents: string[];
+  updatedMs: number;
+  source?: SkillSourceMeta | null;
+};
+
+export type SkillRepo = {
+  id: string;
+  label: string;
+  url: string;
+  branch: string;
+  enabled: boolean;
+  builtin: boolean;
+};
+
+export type RemoteSkillCandidate = {
+  id: string;
+  name: string;
+  description: string;
+  repoId: string;
+  repoLabel: string;
+  repoUrl: string;
+  branch: string;
+  subpath: string;
+  commit: string;
+  sourceKind: string;
+  cacheDir: string;
+  skillMdPreview: string;
+  extraFiles: string[];
+  hasScripts: boolean;
+  inLibrary: boolean;
+};
+
+export type SkillDiscoverOutcome = {
+  candidates: RemoteSkillCandidate[];
+  warnings: string[];
+};
+
+export type SkillUpdateOutcome = {
+  entry: SkillEntry;
+  updated: boolean;
+  previousCommit: string;
+  currentCommit: string;
+  backupPath?: string | null;
+};
+
+export type DiscoveredDiskSkill = {
+  id: string;
+  name: string;
+  description: string;
+  sourcePath: string;
+  sourceAgents: string[];
+  inLibrary: boolean;
+  fileCount: number;
+};
+
+export type SkillSyncOutcome = {
+  linked: string[];
+  unlinked: string[];
+  backups: string[];
 };

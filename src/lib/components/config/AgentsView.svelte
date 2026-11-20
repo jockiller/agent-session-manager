@@ -21,9 +21,9 @@
   import FieldLabel from "./FieldLabel.svelte";
   import MetaPill from "./MetaPill.svelte";
   import SectionLabel from "./SectionLabel.svelte";
-  import { btnGhost, btnPrimary, chipIdle, chipOn, fieldClass, selectClass } from "./styles";
+  import { btnGhost, btnPrimary, fieldClass, selectClass } from "./styles";
 
-  const AGENT_ICONS = {
+  const AGENT_ICONS: Partial<Record<AgentKind, typeof Code>> = {
     opencode: Code,
     dsh: Terminal,
     zcode: Box,
@@ -103,28 +103,18 @@
       else delete next.effortByModel[ref];
     });
   }
-
-  function toggleMcp(id: string, on: boolean) {
-    store.updateSelectedSettings((next) => {
-      if (on) {
-        if (!next.mcpIDs.includes(id)) next.mcpIDs.push(id);
-      } else {
-        next.mcpIDs = next.mcpIDs.filter((item) => item !== id);
-      }
-    });
-  }
 </script>
 
-<div class="flex h-full min-h-0">
-  <div class="w-[220px] shrink-0 border-r border-slate-200/80 bg-slate-50/80 overflow-y-auto p-2 space-y-0.5">
-    {#each store.rankedAgents() as row (row.kind)}
-      {@const Icon = AGENT_ICONS[row.kind]}
+<div class="flex h-full min-h-0 bg-slate-50 dark:bg-slate-950">
+  <div class="w-[220px] shrink-0 border-r border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 overflow-y-auto p-2 space-y-0.5">
+    {#each store.rankedProviderAgents() as row (row.kind)}
+      {@const Icon = AGENT_ICONS[row.kind] ?? Code}
       {@const selected = store.selectedAgent === row.kind}
       <button
         type="button"
         class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition cursor-pointer {selected
-          ? 'bg-white text-slate-900 font-semibold shadow-2xs border border-slate-200/80'
-          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'}"
+          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shadow-2xs border border-slate-200/80 dark:border-slate-700'
+          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100 border border-transparent'}"
         style="opacity: {row.installed ? 1 : 0.55}"
         onclick={() => (store.selectedAgent = row.kind as AgentKind)}
       >
@@ -141,7 +131,7 @@
               <MetaPill text={t("cfg_not_installed")} />
             {/if}
           </span>
-          <span class="block text-[10px] text-slate-400 font-normal truncate">{store.appliedLabel(row.kind)}</span>
+          <span class="block text-[10px] text-slate-400 dark:text-slate-500 font-normal truncate">{store.appliedLabel(row.kind)}</span>
         </span>
       </button>
     {/each}
@@ -152,8 +142,8 @@
       <ConfigCard>
         <div class="flex items-start gap-3">
           <div class="min-w-0 flex-1">
-            <div class="text-sm font-semibold text-slate-800">{AGENT_TITLE[store.selectedAgent]}</div>
-            <div class="text-[11px] text-slate-400 select-text break-all">
+            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100">{AGENT_TITLE[store.selectedAgent]}</div>
+            <div class="text-[11px] text-slate-400 dark:text-slate-500 select-text break-all">
               {resolvedHint(store.selectedAgent, settings.profile)}
             </div>
           </div>
@@ -263,7 +253,7 @@
                       {@const thinkingOff = model.efforts?.length === 0}
                       {@const rowEffortChoices = modelEffortChoices(model)}
                       <div
-                        class="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50/80 min-w-0 {enabled
+                        class="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-50/80 dark:bg-slate-800/70 min-w-0 {enabled
                           ? ''
                           : 'cursor-not-allowed'}"
                       >
@@ -274,13 +264,13 @@
                         >
                           <input
                             type="checkbox"
-                            class="rounded border-slate-300 text-sky-600 focus:ring-sky-500 shrink-0"
+                            class="rounded border-slate-300 dark:border-slate-600 text-claude-600 focus:ring-claude-500 shrink-0"
                             checked={isPicked(settings, ref, catalog)}
                             disabled={!enabled}
                             onchange={(e) => togglePicked(ref, e.currentTarget.checked)}
                           />
                           <span
-                            class="text-xs {enabled ? 'text-slate-800' : 'text-slate-500'} min-w-0 flex-1 truncate"
+                            class="text-xs {enabled ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500'} min-w-0 flex-1 truncate"
                             title={model.name}
                           >{model.name}</span>
                           {#each rowPills(model) as pill}
@@ -292,7 +282,7 @@
                             <span class="text-[10px] text-slate-400 w-20 shrink-0 truncate">{t("cfg_no_thinking")}</span>
                           {:else}
                             <select
-                              class="h-6 w-20 shrink-0 bg-white border border-slate-200 rounded-md px-1 text-[11px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
+                              class="h-6 w-20 shrink-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-1 text-[11px] text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-claude-500 focus:border-claude-500"
                               title={t("cfg_effort")}
                               value={modelEffortValue(ref, model)}
                               onchange={(e) => setModelEffort(ref, e.currentTarget.value)}
@@ -309,44 +299,6 @@
                   </div>
                 </div>
               {/if}
-            {/each}
-          </div>
-        {/if}
-      </ConfigCard>
-
-      <ConfigCard>
-        <SectionLabel title={t("cfg_tab_library")} />
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.instructionOn}
-            aria-label={t("cfg_write_agents_md")}
-            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer {settings.instructionOn
-              ? 'bg-sky-600'
-              : 'bg-slate-300'}"
-            onclick={() => store.updateSelectedSettings((next) => { next.instructionOn = !next.instructionOn; })}
-          >
-            <span
-              class="inline-block h-4 w-4 rounded-full bg-white shadow-2xs transition-transform {settings.instructionOn
-                ? 'translate-x-[18px]'
-                : 'translate-x-0.5'}"
-            ></span>
-          </button>
-          <span class="text-xs text-slate-700">{t("cfg_write_agents_md")}</span>
-        </div>
-        {#if store.document.library.mcp.length === 0}
-          <p class="text-xs text-slate-400">{t("cfg_no_mcp_in_library")}</p>
-        {:else}
-          <div class="flex flex-wrap gap-1.5">
-            {#each store.document.library.mcp as server (server.id)}
-              <button
-                type="button"
-                class={settings.mcpIDs.includes(server.id) ? chipOn : chipIdle}
-                onclick={() => toggleMcp(server.id, !settings.mcpIDs.includes(server.id))}
-              >
-                {server.id}
-              </button>
             {/each}
           </div>
         {/if}

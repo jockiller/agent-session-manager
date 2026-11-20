@@ -8,7 +8,7 @@
 </script>
 
 <div
-  class="pointer-events-auto w-full max-w-[380px] bg-white border border-slate-200/90 rounded-xl shadow-xl px-3.5 py-3 flex items-start gap-2.5"
+  class="pointer-events-auto w-full max-w-[380px] bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-700 rounded-xl shadow-xl px-3.5 py-3 flex items-start gap-2.5"
 >
   {#if toast.isError}
     <AlertTriangle class="h-4 w-4 text-rose-500 mt-0.5 shrink-0" />
@@ -16,14 +16,14 @@
     <CheckCircle2 class="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
   {/if}
   <div class="min-w-0 flex-1">
-    <div class="text-xs font-semibold text-slate-800">{toast.title}</div>
+    <div class="text-xs font-semibold text-slate-800 dark:text-slate-100">{toast.title}</div>
     {#if toast.detail}
-      <p class="mt-0.5 text-[11px] text-slate-500 whitespace-pre-wrap break-all select-text line-clamp-3">{toast.detail}</p>
+      <p class="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap break-all select-text line-clamp-3">{toast.detail}</p>
     {/if}
     {#if toast.revealedPath}
       <button
         type="button"
-        class="mt-1 text-[11px] text-sky-600 hover:text-sky-700 cursor-pointer"
+        class="mt-1 text-[11px] text-claude-600 dark:text-claude-400 hover:text-claude-700 cursor-pointer"
         onclick={() => onReveal(toast.revealedPath)}
       >
         {t("cfg_reveal_in_finder")}
@@ -32,7 +32,7 @@
   </div>
   <button
     type="button"
-    class="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+    class="p-0.5 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
     title={t("close")}
     onclick={onDismiss}
   >
