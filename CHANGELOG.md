@@ -10,6 +10,12 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-20
+
+### Fixed
+
+- **Pi `models.json` schema compatibility**: filter exported model `input` modalities to Pi's allowed values (`text`, `image`) with deduplication, and omit non-positive `contextWindow` and `maxTokens` values so generated configs pass Pi schema validation.
+
 ## [0.3.0] - 2026-11-20
 
 ### Added
