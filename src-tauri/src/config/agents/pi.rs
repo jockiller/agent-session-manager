@@ -12,6 +12,8 @@ use crate::config::models::{APIKind, MCPServer, MCPTransport, ModelEntry, Provid
 pub(crate) const THINKING_LEVELS: &[&str] =
     &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
+const ALLOWED_INPUT_MODALITIES: &[&str] = &["text", "image"];
+
 const PRESERVE_KEYS: &[&str] = &["modelOverrides", "headers", "compat"];
 
 const ADAPTIVE_MARKERS: &[&str] = &[
@@ -329,10 +331,10 @@ fn model_json(model: &ModelEntry, api: APIKind) -> Map<String, Value> {
     if !model.name.is_empty() && model.name != model.wire_id() {
         entry.insert("name".into(), Value::String(model.name.clone()));
     }
-    if let Some(context) = model.context {
+    if let Some(context) = model.context.filter(|&value| value > 0) {
         entry.insert("contextWindow".into(), Value::from(context));
     }
-    if let Some(output) = model.output {
+    if let Some(output) = model.output.filter(|&value| value > 0) {
         entry.insert("maxTokens".into(), Value::from(output));
     }
     if let Some(cost) = &model.cost {
@@ -352,10 +354,11 @@ fn model_json(model: &ModelEntry, api: APIKind) -> Map<String, Value> {
             entry.insert("cost".into(), Value::Object(values));
         }
     }
-    if !model.input.is_empty() {
+    let inputs = pi_input_modalities(&model.input);
+    if !inputs.is_empty() {
         entry.insert(
             "input".into(),
-            Value::Array(model.input.iter().cloned().map(Value::String).collect()),
+            Value::Array(inputs.into_iter().map(Value::String).collect()),
         );
     }
     if let Some(efforts) = &model.efforts {
@@ -378,6 +381,17 @@ fn model_json(model: &ModelEntry, api: APIKind) -> Map<String, Value> {
         entry.insert("compat".into(), Value::Object(object));
     }
     entry
+}
+
+pub(crate) fn pi_input_modalities(input: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in input {
+        let normalized = item.trim().to_ascii_lowercase();
+        if ALLOWED_INPUT_MODALITIES.contains(&normalized.as_str()) && !out.contains(&normalized) {
+            out.push(normalized);
+        }
+    }
+    out
 }
 
 pub(crate) fn thinking_map(efforts: &[String]) -> Vec<(String, String)> {
@@ -989,5 +1003,32 @@ mod tests {
         assert_eq!(cost.get("output").and_then(Value::as_f64), Some(7.5));
         assert_eq!(cost.get("cacheRead").and_then(Value::as_f64), Some(0.0));
         assert_eq!(cost.get("cacheWrite").and_then(Value::as_f64), Some(0.15));
+    }
+
+    #[test]
+    fn model_json_filters_unsupported_input_modalities() {
+        let mut model = ModelEntry::new("gpt-6.2-astra", "GPT 6.2 Astra");
+        model.input = vec![
+            "text".into(),
+            "image".into(),
+            "pdf".into(),
+            "audio".into(),
+            "IMAGE".into(),
+        ];
+        model.context = Some(1050000);
+        model.output = Some(128000);
+        let entry = model_json(&model, APIKind::Responses);
+        assert_eq!(entry["input"], json!(["text", "image"]));
+        assert_eq!(entry["contextWindow"], 1050000);
+        assert_eq!(entry["maxTokens"], 128000);
+
+        let mut unsupported_only = ModelEntry::new("doc-only", "Doc Only");
+        unsupported_only.input = vec!["pdf".into(), "audio".into()];
+        unsupported_only.context = Some(0);
+        unsupported_only.output = Some(0);
+        let omitted = model_json(&unsupported_only, APIKind::Responses);
+        assert!(omitted.get("input").is_none());
+        assert!(omitted.get("contextWindow").is_none());
+        assert!(omitted.get("maxTokens").is_none());
     }
 }
