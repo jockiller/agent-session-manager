@@ -80,19 +80,19 @@
     tabindex="-1"
   >
     <div
-      class="bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
+      class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/90 dark:border-slate-700 w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
     >
       <!-- Modal Header -->
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/50">
+      <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-900">
         <div class="flex items-center gap-3">
-          <div class="h-9 w-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-200/70 shrink-0">
+          <div class="h-9 w-9 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center border border-rose-200/70 dark:border-rose-800 shrink-0">
             <Trash2 class="h-4.5 w-4.5" />
           </div>
           <div>
-            <h2 id="modal-title" class="text-sm font-bold text-slate-900 tracking-tight">
+            <h2 id="modal-title" class="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               {t("cleanup_confirm_title")}
             </h2>
-            <p class="text-xs text-slate-500 mt-0.5">
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {t("cleanup_notice")}
             </p>
           </div>
@@ -101,7 +101,7 @@
         <button
           onclick={onClose}
           disabled={isCleaning}
-          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer disabled:opacity-40"
+          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer disabled:opacity-40"
           title={t("close")}
         >
           <X class="h-4 w-4" />
@@ -120,19 +120,19 @@
           </div>
         {:else}
           <div class="grid grid-cols-2 gap-2.5">
-            <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col">
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700 flex flex-col">
               <span class="text-[10px] text-slate-400 font-medium">{t("selected_sessions_stat")}</span>
-              <span class="text-base font-bold text-slate-900 mt-1 font-mono">
-                {selectedSessions.length} <span class="text-xs font-normal text-slate-500">{t("items_suffix")}</span>
+              <span class="text-base font-bold text-slate-900 dark:text-slate-100 mt-1 font-mono">
+                {selectedSessions.length} <span class="text-xs font-normal text-slate-500 dark:text-slate-400">{t("items_suffix")}</span>
               </span>
             </div>
 
-            <div class="p-3 rounded-xl bg-rose-50/70 border border-rose-200/70 flex flex-col">
-              <div class="flex items-center gap-1 text-[10px] text-rose-600 font-medium">
+            <div class="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/50 border border-rose-200/70 dark:border-rose-800/70 flex flex-col">
+              <div class="flex items-center gap-1 text-[10px] text-rose-600 dark:text-rose-400 font-medium">
                 <Database class="h-3 w-3 shrink-0" />
                 <span>{t("estimated_reclaim")}</span>
               </div>
-              <span class="text-base font-bold text-rose-700 mt-1 font-mono">
+              <span class="text-base font-bold text-rose-700 dark:text-rose-300 mt-1 font-mono">
                 {formatBytes(effectiveBytes)}
               </span>
             </div>
@@ -140,12 +140,12 @@
 
           <!-- Running session protection alert -->
           {#if runningCount > 0}
-            <div class="p-3 rounded-xl bg-amber-50/90 border border-amber-200/90 text-xs space-y-2 text-amber-900">
+            <div class="p-3 rounded-xl bg-amber-50/90 dark:bg-amber-950/50 border border-amber-200/90 dark:border-amber-800 text-xs space-y-2 text-amber-900 dark:text-amber-200">
               <div class="flex items-center gap-2 font-semibold">
-                <AlertTriangle class="h-4 w-4 text-amber-600 shrink-0" />
+                <AlertTriangle class="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
                 <span>{t("running_detected_title", { n: runningCount })}</span>
               </div>
-              <p class="text-[11px] text-amber-800 leading-relaxed">
+              <p class="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
                 {t("running_detected_desc")}
               </p>
               <label class="flex items-center gap-2 pt-1 text-xs cursor-pointer select-none">
@@ -161,26 +161,26 @@
 
           <!-- Selected Sessions List Preview -->
           <div class="space-y-1.5">
-            <div class="flex items-center justify-between text-xs text-slate-500 font-medium px-0.5">
+            <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium px-0.5">
               <span>{t("cleanup_list_heading")}</span>
               <span class="text-[11px] font-mono text-slate-400">{t("items_total", { n: selectedSessions.length })}</span>
             </div>
 
-            <div class="max-h-48 overflow-y-auto space-y-1 p-1.5 bg-slate-50/80 rounded-xl border border-slate-200/80 divide-y divide-slate-100">
+            <div class="max-h-48 overflow-y-auto space-y-1 p-1.5 bg-slate-50/80 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60">
               {#each selectedSessions as s}
                 <div class="pt-1.5 first:pt-0 flex items-center justify-between gap-2 text-xs py-1 px-1">
                   <div class="flex items-center gap-2 min-w-0">
                     <span class="text-[10px] font-mono px-1.5 py-0.2 rounded border uppercase font-bold shrink-0 {getPlatformBadge(s.platform)}">
                       {s.platform}
                     </span>
-                    <span class="text-xs text-slate-800 font-medium truncate" title={s.title}>
+                    <span class="text-xs text-slate-800 dark:text-slate-200 font-medium truncate" title={s.title}>
                       {s.title}
                     </span>
                   </div>
 
                   <div class="flex items-center gap-2 shrink-0 font-mono text-[11px] text-slate-400">
                     {#if s.is_running}
-                      <span class="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                      <span class="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
                         <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                         {t("running")}
                       </span>
@@ -193,8 +193,8 @@
           </div>
 
           <!-- Native Trash Safety Notice -->
-          <div class="flex items-start gap-2 p-2.5 rounded-xl bg-slate-50 text-slate-600 border border-slate-200/80 text-[11px] leading-relaxed">
-            <ShieldCheck class="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+          <div class="flex items-start gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 text-[11px] leading-relaxed">
+            <ShieldCheck class="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
             <span>
               {t("native_trash_notice")}
             </span>
@@ -203,10 +203,10 @@
       </div>
 
       <!-- Modal Footer -->
-      <div class="px-5 py-3.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between shrink-0">
+      <div class="px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900 flex items-center justify-between shrink-0">
         <span class="text-xs text-slate-400">
           {#if selectedSessions.length > 0}
-            {t("will_move_to_trash")} <strong class="text-slate-700 font-bold">{effectiveTargetCount}</strong> {t("items_suffix")}
+            {t("will_move_to_trash")} <strong class="text-slate-700 dark:text-slate-200 font-bold">{effectiveTargetCount}</strong> {t("items_suffix")}
           {/if}
         </span>
 
@@ -214,7 +214,7 @@
           <button
             onclick={onClose}
             disabled={isCleaning}
-            class="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-40"
+            class="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer shadow-2xs disabled:opacity-40"
           >
             {t("cancel")}
           </button>

@@ -13,7 +13,7 @@
   } = $props();
 
   const repoUrl = "https://github.com/jockiller/agent-session-manager";
-  let appVersion = $state("0.1.2");
+  let appVersion = $state("0.3.0");
 
   $effect(() => {
     getVersion()
@@ -63,14 +63,14 @@
   >
     <!-- Modal Card -->
     <div
-      class="bg-white rounded-2xl shadow-xl border border-slate-200/90 w-full max-w-sm overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+      class="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200/90 dark:border-slate-700 w-full max-w-sm overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
       role="document"
     >
       <!-- Top Bar with Close button -->
       <div class="px-4 pt-3 flex justify-end">
         <button
           onclick={onClose}
-          class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+          class="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           title={t("close")}
         >
           <X class="h-4 w-4" />
@@ -84,28 +84,28 @@
           <img
             src="/logo.png"
             alt="Agent Session Manager"
-            class="h-16 w-16 rounded-2xl shadow-md border border-slate-200/60 object-contain select-none"
+            class="h-16 w-16 rounded-2xl shadow-md border border-slate-200/60 dark:border-slate-700 object-contain select-none"
           />
         </div>
 
         <!-- Title & Version -->
         <div class="space-y-1">
-          <h2 id="about-title" class="text-base font-bold text-slate-900 tracking-tight">
+          <h2 id="about-title" class="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
             {t("app_title")}
           </h2>
-          <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-50 border border-sky-200/80 text-[11px] font-mono font-semibold text-sky-700">
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-claude-50 dark:bg-claude-950/70 border border-claude-200/80 dark:border-claude-800 text-[11px] font-mono font-semibold text-claude-700 dark:text-claude-300">
             <span>{t("about_version")}</span>
             <span>v{appVersion}</span>
           </div>
         </div>
 
         <!-- Description -->
-        <p class="text-xs text-slate-600 leading-relaxed max-w-[280px]">
+        <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-[280px]">
           {t("about_desc")}
         </p>
 
         <!-- Ecosystem tag -->
-        <div class="text-[11px] text-slate-500 bg-slate-50 border border-slate-200/70 rounded-lg px-3 py-1 font-medium">
+        <div class="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700 rounded-lg px-3 py-1 font-medium">
           {t("supported_ecosystem")}
         </div>
 
@@ -113,7 +113,7 @@
         <div class="w-full pt-1 space-y-1.5">
           <button
             onclick={openGithub}
-            class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-black text-white text-xs font-semibold shadow-xs transition cursor-pointer group"
+            class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-900 dark:bg-claude-600 hover:bg-slate-800 dark:hover:bg-claude-700 active:bg-black text-white text-xs font-semibold shadow-xs transition cursor-pointer group"
           >
             <!-- GitHub SVG mark -->
             <svg class="h-4 w-4 fill-current shrink-0" viewBox="0 0 24 24" aria-hidden="true">
@@ -126,11 +126,11 @@
           <!-- Copy URL button -->
           <button
             onclick={copyRepoUrl}
-            class="text-[10px] text-slate-400 hover:text-slate-600 transition cursor-pointer flex items-center justify-center gap-1 mx-auto"
+            class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer flex items-center justify-center gap-1 mx-auto"
           >
             {#if copied}
-              <Check class="h-3 w-3 text-emerald-600" />
-              <span class="text-emerald-700 font-medium">Copied URL</span>
+              <Check class="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+              <span class="text-emerald-700 dark:text-emerald-400 font-medium">Copied URL</span>
             {:else}
               <Copy class="h-3 w-3" />
               <span>github.com/jockiller/agent-session-manager</span>
@@ -139,7 +139,7 @@
         </div>
 
         <!-- Tech Footer -->
-        <div class="pt-2 border-t border-slate-100 w-full text-[10px] text-slate-400 font-mono flex items-center justify-between">
+        <div class="pt-2 border-t border-slate-100 dark:border-slate-800 w-full text-[10px] text-slate-400 font-mono flex items-center justify-between">
           <span>Tauri 2 · Svelte 5 · Rust</span>
           <span>MIT License</span>
         </div>

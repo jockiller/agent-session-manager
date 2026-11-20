@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::process::Command;
+use tauri::{AppHandle, Manager};
 
 use crate::adapters::antigravity::AntigravityAdapter;
 use crate::adapters::claude::ClaudeAdapter;
@@ -100,6 +101,60 @@ pub fn execute_cleanup_cmd(
 }
 
 #[tauri::command]
+pub fn open_app(app_name: String, target_path: Option<String>) -> Result<(), String> {
+    let trimmed = app_name.trim();
+    if trimmed.is_empty() {
+        return Err("App name is empty".to_string());
+    }
+    let clean_path = target_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && std::path::Path::new(p).exists());
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = Command::new("open");
+        cmd.arg("-a").arg(trimmed);
+        if let Some(p) = clean_path {
+            cmd.arg(p);
+        }
+        let status = cmd.status().map_err(|e| format!("Failed to open {trimmed}: {e}"))?;
+        if !status.success() {
+            return Err(format!("Failed to launch application {trimmed}"));
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/c", "start", "", trimmed]);
+        if let Some(p) = clean_path {
+            cmd.arg(p);
+        }
+        cmd.spawn()
+            .map_err(|e| format!("Failed to open {trimmed}: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let bin = trimmed.to_lowercase();
+        let mut cmd = Command::new(&bin);
+        if let Some(p) = clean_path {
+            cmd.arg(p);
+        }
+        if cmd.spawn().is_err() {
+            if let Some(p) = clean_path {
+                Command::new("xdg-open")
+                    .arg(p)
+                    .spawn()
+                    .map_err(|e| format!("Failed to open {trimmed}: {e}"))?;
+            } else {
+                return Err(format!("Failed to launch application {trimmed}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn reveal_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -135,23 +190,67 @@ pub fn reveal_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn macos_terminal_app_name(terminal: Option<&str>) -> &'static str {
+    match terminal.map(|t| t.trim().to_ascii_lowercase()).as_deref() {
+        Some("iterm") | Some("iterm2") => "iTerm",
+        Some("ghostty") => "Ghostty",
+        Some("warp") => "Warp",
+        Some("alacritty") => "Alacritty",
+        Some("kitty") => "kitty",
+        _ => "Terminal",
+    }
+}
+
 #[tauri::command]
-pub fn open_terminal(cwd: String) -> Result<(), String> {
+pub fn open_backups_dir(app: AppHandle) -> Result<String, String> {
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let backups = app_data.join("backups");
+    std::fs::create_dir_all(&backups).map_err(|e| e.to_string())?;
+    let path_str = backups.to_string_lossy().into_owned();
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&backups)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(&backups)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&backups)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(path_str)
+}
+
+#[tauri::command]
+pub fn open_terminal(cwd: String, terminal: Option<String>) -> Result<(), String> {
     if cwd.is_empty() {
         return Err("Path is empty".to_string());
     }
 
     #[cfg(target_os = "macos")]
     {
+        let app_name = macos_terminal_app_name(terminal.as_deref());
         Command::new("open")
             .arg("-a")
-            .arg("Terminal")
+            .arg(app_name)
             .arg(&cwd)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "windows")]
     {
+        let _ = terminal;
         Command::new("cmd")
             .args(["/c", "start", "", "cmd.exe"])
             .current_dir(&cwd)
@@ -160,6 +259,7 @@ pub fn open_terminal(cwd: String) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
+        let _ = terminal;
         let candidates = [
             "x-terminal-emulator",
             "gnome-terminal",
@@ -187,7 +287,7 @@ pub fn open_terminal(cwd: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn run_in_terminal(command: String) -> Result<(), String> {
+pub fn run_in_terminal(command: String, terminal: Option<String>) -> Result<(), String> {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return Err("Command is empty".to_string());
@@ -195,19 +295,58 @@ pub fn run_in_terminal(command: String) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
+        let app_name = macos_terminal_app_name(terminal.as_deref());
         let escaped = trimmed.replace('\\', "\\\\").replace('"', "\\\"");
-        let apple_script = format!(
-            "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
-            escaped
-        );
-        Command::new("osascript")
-            .arg("-e")
-            .arg(&apple_script)
-            .spawn()
-            .map_err(|e| format!("Failed to spawn terminal: {}", e))?;
+        if app_name == "iTerm" {
+            let apple_script = format!(
+                "tell application \"iTerm\"\nactivate\nif (count of windows) = 0 then\ncreate window with default profile command \"{}\"\nelse\ntell current window\ncreate tab with default profile command \"{}\"\nend tell\nend if\nend tell",
+                escaped, escaped
+            );
+            Command::new("osascript")
+                .arg("-e")
+                .arg(&apple_script)
+                .spawn()
+                .map_err(|e| format!("Failed to spawn iTerm: {}", e))?;
+        } else if app_name == "Terminal" {
+            let apple_script = format!(
+                "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
+                escaped
+            );
+            Command::new("osascript")
+                .arg("-e")
+                .arg(&apple_script)
+                .spawn()
+                .map_err(|e| format!("Failed to spawn terminal: {}", e))?;
+        } else {
+            // Ghostty, Warp, Alacritty, kitty: write a transient script or launch via open -a with login shell
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+            let args: Vec<&str> = match app_name {
+                "Ghostty" => vec!["-na", "Ghostty", "--args", "-e", &shell, "-lc", trimmed],
+                "Alacritty" => vec!["-na", "Alacritty", "--args", "-e", &shell, "-lc", trimmed],
+                "kitty" => vec!["-na", "kitty", "--args", &shell, "-lc", trimmed],
+                _ => {
+                    // Fallback to Terminal AppleScript if app doesn't support CLI -e cleanly (e.g. Warp)
+                    let apple_script = format!(
+                        "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
+                        escaped
+                    );
+                    Command::new("osascript")
+                        .arg("-e")
+                        .arg(&apple_script)
+                        .spawn()
+                        .map_err(|e| format!("Failed to spawn terminal: {}", e))?;
+                    return Ok(());
+                }
+            };
+            Command::new("open")
+                .args(args)
+                .spawn()
+                .map_err(|e| format!("Failed to spawn {}: {}", app_name, e))?;
+        }
     }
     #[cfg(target_os = "windows")]
     {
+        let _ = terminal;
         Command::new("cmd")
             .args(["/c", "start", "Agent Session", "cmd.exe", "/k", trimmed])
             .spawn()
@@ -215,6 +354,7 @@ pub fn run_in_terminal(command: String) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
+        let _ = terminal;
         let bash_cmd = format!("{}; exec bash", trimmed);
         let candidates: [(&str, &[&str]); 7] = [
             ("x-terminal-emulator", &["-e", "bash", "-c", &bash_cmd]),

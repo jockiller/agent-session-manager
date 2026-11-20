@@ -1,8 +1,62 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-slate-50: #FAF9F5;
+  --color-slate-100: #F2F0E8;
+  --color-slate-200: #E5E2D9;
+  --color-slate-300: #D4D0C5;
+  --color-slate-400: #9B968B;
+  --color-slate-500: #716D64;
+  --color-slate-600: #55524B;
+  --color-slate-700: #3D3B36;
+  --color-slate-800: #292825;
+  --color-slate-900: #1F1E1C;
+  --color-slate-950: #141413;
+
+  --color-claude-50: #FDF4F0;
+  --color-claude-100: #FAE6DC;
+  --color-claude-200: #F3C9B6;
+  --color-claude-300: #E9A489;
+  --color-claude-400: #E08766;
+  --color-claude-500: #D97757;
+  --color-claude-600: #C15F3C;
+  --color-claude-700: #A84E2F;
+  --color-claude-800: #873E26;
+  --color-claude-900: #5E2B1B;
+  --color-claude-950: #331810;
+}
+
 @layer base {
   :root {
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --bg-canvas: #FAF9F5;
+    --bg-sidebar: #F2F0E8;
+    --bg-surface: #FFFFFF;
+    --bg-elevated: #EAE7DF;
+    --border-default: rgba(229, 226, 217, 0.9);
+    --text-primary: #1F1E1C;
+    --text-secondary: #55524B;
+    --text-muted: #9B968B;
+    --density-card-p: 0.75rem;
+    --density-list-gap: 0.375rem;
+  }
+
+  :root.dark {
+    --bg-canvas: #141413;
+    --bg-sidebar: #1B1A18;
+    --bg-surface: #1F1E1C;
+    --bg-elevated: #292825;
+    --border-default: rgba(61, 59, 54, 0.85);
+    --text-primary: #F2F0E8;
+    --text-secondary: #CBC7BD;
+    --text-muted: #716D64;
+  }
+
+  :root[data-density="compact"] {
+    --density-card-p: 0.55rem;
+    --density-list-gap: 0.25rem;
   }
 
   html,
@@ -18,11 +72,10 @@
     font-family: var(--font-sans);
     user-select: none;
     -webkit-user-select: none;
-    background-color: #f8fafc;
-    color: #0f172a;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
   }
 
-  /* Prevent macOS WebKit rubber-band elastic bouncing on all scrollable elements */
   *,
   *::before,
   *::after {
@@ -32,7 +85,6 @@
   }
 }
 
-/* Custom scrollbars for clean desktop appearance */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -43,18 +95,89 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #D4D0C5;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #9B968B;
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #3D3B36;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #55524B;
 }
+
+/* Rendered markdown prose inside session inspector & instruction preview */
+.asm-prose {
+  font-size: 0.75rem;
+  line-height: 1.65;
+  color: inherit;
+  word-break: break-word;
+}
+.asm-prose > :first-child { margin-top: 0; }
+.asm-prose > :last-child { margin-bottom: 0; }
+.asm-prose h1, .asm-prose h2, .asm-prose h3, .asm-prose h4 {
+  font-weight: 700;
+  margin-top: 0.85em;
+  margin-bottom: 0.35em;
+  line-height: 1.35;
+}
+.asm-prose h1 { font-size: 1.05rem; }
+.asm-prose h2 { font-size: 0.95rem; }
+.asm-prose h3 { font-size: 0.85rem; }
+.asm-prose p { margin: 0.45em 0; }
+.asm-prose ul, .asm-prose ol { margin: 0.4em 0; padding-left: 1.35em; }
+.asm-prose ul { list-style-type: disc; }
+.asm-prose ol { list-style-type: decimal; }
+.asm-prose li { margin: 0.15em 0; }
+.asm-prose blockquote {
+  margin: 0.5em 0;
+  padding: 0.25em 0.75em;
+  border-left: 3px solid #D97757;
+  opacity: 0.9;
+}
+.asm-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.7rem;
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+  background: rgba(155, 150, 139, 0.16);
+}
+.asm-prose pre {
+  position: relative;
+  margin: 0.55em 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.6rem;
+  background: #1A1917;
+  color: #ECEAE2;
+  border: 1px solid rgba(229, 226, 217, 0.14);
+  overflow-x: auto;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+.asm-prose pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.asm-prose a {
+  color: #C15F3C;
+  text-decoration: underline;
+}
+.dark .asm-prose a { color: #E08766; }
+.asm-prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+  font-size: 0.7rem;
+}
+.asm-prose th, .asm-prose td {
+  border: 1px solid rgba(155, 150, 139, 0.3);
+  padding: 0.3em 0.55em;
+  text-align: left;
+}
+.asm-prose th { font-weight: 600; background: rgba(155, 150, 139, 0.12); }

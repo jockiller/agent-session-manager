@@ -2,13 +2,26 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import type { ChatMessage, CleanupResult, GlobalStats, SessionSummary, SessionTreeNode } from "$lib/types";
-  import Sidebar from "$lib/components/Sidebar.svelte";
+  import AppSidebar from "$lib/components/AppSidebar.svelte";
   import SessionList from "$lib/components/SessionList.svelte";
   import SessionInspector from "$lib/components/SessionInspector.svelte";
   import CleanupModal from "$lib/components/CleanupModal.svelte";
   import AboutModal from "$lib/components/AboutModal.svelte";
-  import ConfigView from "$lib/components/config/ConfigView.svelte";
-  import { Star, Download, Trash2, X, Globe, Info } from "@lucide/svelte";
+  import PlatformsView from "$lib/components/PlatformsView.svelte";
+  import SettingsView from "$lib/components/SettingsView.svelte";
+  import AgentsView from "$lib/components/config/AgentsView.svelte";
+  import ProvidersView from "$lib/components/config/ProvidersView.svelte";
+  import McpView from "$lib/components/config/McpView.svelte";
+  import InstructionsView from "$lib/components/instructions/InstructionsView.svelte";
+  import SkillsView from "$lib/components/skills/SkillsView.svelte";
+  import UsageView from "$lib/components/usage/UsageView.svelte";
+  import UsageLogsView from "$lib/components/usage/UsageLogsView.svelte";
+  import ToastOverlay from "$lib/components/config/ToastOverlay.svelte";
+  import { appStore } from "$lib/stores/app.svelte";
+  import { configStore } from "$lib/config/store.svelte";
+  import { skillsStore } from "$lib/stores/skills.svelte";
+  import { usageStore } from "$lib/usage/store.svelte";
+  import { Star, Download, Trash2, X, Globe, Info, LoaderCircle, Sun, Moon } from "@lucide/svelte";
   import { parseLocalDateStart, parseLocalDateEnd, normalizeTimestamp } from "$lib/utils";
   import { t, i18n, supportedLocales, type Locale } from "$lib/i18n";
 
@@ -39,7 +52,6 @@
   let showCleanupModal = $state(false);
   let isCleaningModal = $state(false);
   let showAboutModal = $state(false);
-  let appMode = $state<"session" | "config">("session");
 
   // Workspaces list
   let workspaces = $derived(
@@ -86,6 +98,9 @@
     const dayMs = 86400000;
 
     let res = sessions.filter((s) => {
+      if (selectedPlatform === "all" && appStore.isPlatformHidden(s.platform)) {
+        return false;
+      }
       // Platform filter
       if (selectedPlatform !== "all" && s.platform !== selectedPlatform) {
         return false;
@@ -399,61 +414,129 @@
 
   let isMac = $state(true);
 
+  $effect(() => {
+    const targetId = appStore.pendingJumpSessionId;
+    if (targetId && sessions.length > 0) {
+      const hit = sessions.find((s) => s.id === targetId);
+      appStore.pendingJumpSessionId = null;
+      if (hit) {
+        selectedPlatform = "all";
+        selectedFilter = "all";
+        void handleSelectSession(hit);
+      }
+    }
+  });
+
+  $effect(() => {
+    if (
+      appStore.activeNav === "agents" ||
+      appStore.activeNav === "providers" ||
+      appStore.activeNav === "mcp" ||
+      appStore.activeNav === "instructions" ||
+      appStore.activeNav === "skills"
+    ) {
+      void configStore.ensureLoaded();
+    }
+    if (appStore.activeNav === "skills") {
+      void skillsStore.ensureLoaded();
+    }
+  });
+
+  function handleShellKeydown(event: KeyboardEvent) {
+    const meta = event.metaKey || event.ctrlKey;
+    if (!meta) return;
+    if (!event.shiftKey && event.key.toLowerCase() === "s") {
+      if (appStore.activeNav === "agents") {
+        event.preventDefault();
+        void configStore.apply(configStore.selectedAgent);
+      } else if (appStore.activeNav === "providers" && configStore.isDirty) {
+        event.preventDefault();
+        void configStore.saveProviderDraft();
+      } else if (appStore.activeNav === "mcp") {
+        event.preventDefault();
+        void configStore.saveAndSyncMcp();
+      } else if (appStore.activeNav === "instructions") {
+        event.preventDefault();
+        void configStore.saveAndSyncInstructions();
+      } else if (appStore.activeNav === "skills") {
+        event.preventDefault();
+        void skillsStore.saveAndSyncSelected();
+      }
+    } else if (event.shiftKey && event.key.toLowerCase() === "z") {
+      if (
+        (appStore.activeNav === "agents" ||
+          appStore.activeNav === "providers" ||
+          appStore.activeNav === "mcp" ||
+          appStore.activeNav === "instructions") &&
+        configStore.isDirty
+      ) {
+        event.preventDefault();
+        configStore.revert();
+      } else if (appStore.activeNav === "skills" && skillsStore.isDirty) {
+        event.preventDefault();
+        skillsStore.revert();
+      }
+    }
+  }
+
   onMount(() => {
     if (typeof navigator !== "undefined") {
       isMac = /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent);
     }
+    if (typeof window !== "undefined" && window.innerWidth < 1120) {
+      appStore.setSidebarCollapsed(true);
+    }
     loadStarred();
     refreshAll();
+    void configStore.ensureLoaded();
+    void skillsStore.ensureLoaded();
+    void usageStore.syncInBackground();
   });
 </script>
 
-<div class="h-screen w-screen flex flex-col overflow-hidden bg-slate-50 text-slate-800 font-sans antialiased relative">
-  <!-- Top Drag Titlebar (Seamless with App Body, OS-adaptive) -->
+<svelte:window onkeydown={handleShellKeydown} />
+
+<div class="h-screen w-screen flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans antialiased relative">
+  <!-- Slim Native Drag Titlebar -->
   <div
-    class="h-8 w-full shrink-0 flex items-center justify-between select-none bg-slate-100/80 border-b border-slate-200/90 {isMac ? 'pl-20' : 'pl-4'} pr-4 text-xs cursor-default"
+    class="h-8 w-full shrink-0 flex items-center justify-between select-none bg-slate-100/90 dark:bg-slate-900 border-b border-slate-200/90 dark:border-slate-800 {isMac ? 'pl-20' : 'pl-4'} pr-4 text-xs cursor-default"
     style="-webkit-user-select: none;"
     data-tauri-drag-region="deep"
     role="toolbar"
     tabindex="-1"
   >
-    <div class="flex items-center gap-3 min-w-0">
-      <div class="flex items-center gap-2 min-w-0 pointer-events-none">
-        <span class="text-xs font-semibold text-slate-700 tracking-tight">{t("app_title")}</span>
-        <span class="text-[10px] text-slate-400 font-normal truncate">{t("app_subtitle")}</span>
-      </div>
-      <div
-        class="flex items-center rounded-md bg-slate-200/70 p-0.5 border border-slate-300/50 shrink-0"
-        data-tauri-drag-region="false"
-      >
-        <button
-          type="button"
-          class="px-2 py-0.5 rounded text-[11px] font-sans font-medium transition cursor-pointer {appMode === 'session'
-            ? 'bg-white text-slate-900 shadow-2xs'
-            : 'text-slate-500 hover:text-slate-800'}"
-          onclick={() => (appMode = "session")}
-        >
-          {t("mode_sessions")}
-        </button>
-        <button
-          type="button"
-          class="px-2 py-0.5 rounded text-[11px] font-sans font-medium transition cursor-pointer {appMode === 'config'
-            ? 'bg-white text-slate-900 shadow-2xs'
-            : 'text-slate-500 hover:text-slate-800'}"
-          onclick={() => (appMode = "config")}
-        >
-          {t("mode_config")}
-        </button>
-      </div>
+    <div class="flex items-center gap-2.5 min-w-0 pointer-events-none">
+      <span class="text-xs font-semibold text-slate-700 dark:text-slate-200 tracking-tight">{t("app_title")}</span>
+      <span class="text-[10px] text-slate-400 dark:text-slate-500 font-normal truncate">{t("app_subtitle")}</span>
     </div>
-    <div class="flex items-center gap-2.5 text-[11px] text-slate-500 font-mono">
-      <!-- Native Language Selector (Interactive without blocking window drag) -->
+
+    <div class="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+      {#if configStore.isExporting}
+        <LoaderCircle class="h-3.5 w-3.5 animate-spin text-claude-500" />
+      {/if}
+
+      <!-- Quick Theme Toggle -->
+      <button
+        type="button"
+        onclick={() => appStore.setTheme(appStore.isDarkEffective ? "light" : "dark")}
+        class="flex items-center justify-center p-1 rounded-md hover:bg-slate-200/80 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition cursor-pointer"
+        data-tauri-drag-region="false"
+        title={t("settings_theme")}
+      >
+        {#if appStore.isDarkEffective}
+          <Sun class="h-3.5 w-3.5" />
+        {:else}
+          <Moon class="h-3.5 w-3.5" />
+        {/if}
+      </button>
+
+      <!-- Language Selector -->
       <div
         class="relative flex items-center group shrink-0"
         data-tauri-drag-region="false"
       >
-        <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-md hover:bg-slate-200/80 text-slate-600 hover:text-slate-900 transition cursor-pointer text-[11px] font-sans font-medium border border-transparent hover:border-slate-300/60 shadow-2xs">
-          <Globe class="h-3 w-3 text-slate-500 group-hover:text-sky-600 transition" />
+        <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-md hover:bg-slate-200/80 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 transition cursor-pointer text-[11px] font-sans font-medium">
+          <Globe class="h-3 w-3 text-slate-500 dark:text-slate-400 group-hover:text-claude-600 transition" />
           <span>{supportedLocales.find((l) => l.id === i18n.locale)?.label || "Language"}</span>
         </div>
         <select
@@ -468,83 +551,103 @@
         </select>
       </div>
 
-      <!-- Info / About Button -->
+      <!-- About Button -->
       <button
         type="button"
         onclick={() => (showAboutModal = true)}
-        class="flex items-center justify-center p-1 rounded-md hover:bg-slate-200/80 text-slate-500 hover:text-slate-900 transition cursor-pointer border border-transparent hover:border-slate-300/60 shadow-2xs shrink-0"
+        class="flex items-center justify-center p-1 rounded-md hover:bg-slate-200/80 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition cursor-pointer shrink-0"
         data-tauri-drag-region="false"
         title={t("about_app")}
       >
-        <Info class="h-3.5 w-3.5 text-slate-500 hover:text-sky-600 transition" />
+        <Info class="h-3.5 w-3.5" />
       </button>
     </div>
   </div>
 
-  {#if appMode === "config"}
-    <ConfigView />
-  {:else}
-    <!-- 3-Pane Body -->
-    <div class="flex-1 flex overflow-hidden">
-      <!-- Left Navigation Sidebar (Platform & Quick Views) -->
-      <Sidebar
-        bind:selectedPlatform
-        bind:selectedFilter
-        {stats}
-        {isLoading}
-        starredCount={starredIds.size}
-        onRefresh={refreshAll}
-      />
+  <!-- App Shell Body: Global Left Sidebar + Active Workspace -->
+  <div class="flex-1 flex min-h-0 overflow-hidden">
+    <AppSidebar
+      runningCount={stats?.running_count ?? 0}
+      totalSessions={stats?.total_sessions ?? 0}
+    />
 
-      <!-- Middle Panel: Session Card List with Search & Sort Toolbar & Linked Telemetry -->
-      <SessionList
-        {treeNodes}
-        flatSessions={filteredSessions}
-        allSessions={sessions}
-        bind:viewMode
-        bind:searchQuery
-        bind:sortBy
-        bind:selectedWorkspace
-        bind:selectedTimeRange
-        bind:customStartDate
-        bind:customEndDate
-        bind:selectedKind
-        {workspaces}
-        selectedSessionId={selectedSession?.id ?? null}
-        bind:selectedIds
-        {starredIds}
-        onSelectSession={handleSelectSession}
-        onToggleStar={toggleStar}
-      />
+    <main class="flex-1 min-w-0 min-h-0 flex overflow-hidden">
+      {#if appStore.activeNav === "sessions"}
+        <SessionList
+          {treeNodes}
+          flatSessions={filteredSessions}
+          allSessions={sessions}
+          {stats}
+          {isLoading}
+          starredCount={starredIds.size}
+          bind:selectedPlatform
+          bind:selectedFilter
+          bind:viewMode
+          bind:searchQuery
+          bind:sortBy
+          bind:selectedWorkspace
+          bind:selectedTimeRange
+          bind:customStartDate
+          bind:customEndDate
+          bind:selectedKind
+          {workspaces}
+          selectedSessionId={selectedSession?.id ?? null}
+          bind:selectedIds
+          {starredIds}
+          onSelectSession={handleSelectSession}
+          onToggleStar={toggleStar}
+          onRefresh={refreshAll}
+        />
+        <SessionInspector
+          session={selectedSession}
+          {messages}
+          {isLoadingMessages}
+          {parentSession}
+          {childSubagents}
+          isStarred={selectedSession ? starredIds.has(selectedSession.id) : false}
+          onDeleteSingle={handleDeleteSingle}
+          onToggleStar={toggleStar}
+          onJumpSession={handleSelectSession}
+        />
+      {:else if appStore.activeNav === "usage"}
+        <UsageView />
+      {:else if appStore.activeNav === "logs"}
+        <UsageLogsView />
+      {:else if appStore.activeNav === "instructions"}
+        <InstructionsView />
+      {:else if appStore.activeNav === "agents"}
+        <div class="flex-1 min-w-0 min-h-0">
+          <AgentsView />
+        </div>
+      {:else if appStore.activeNav === "providers"}
+        <div class="flex-1 min-w-0 min-h-0 flex">
+          <ProvidersView />
+        </div>
+      {:else if appStore.activeNav === "mcp"}
+        <McpView />
+      {:else if appStore.activeNav === "skills"}
+        <SkillsView />
+      {:else if appStore.activeNav === "platforms"}
+        <PlatformsView {stats} />
+      {:else if appStore.activeNav === "settings"}
+        <SettingsView />
+      {/if}
+    </main>
+  </div>
 
-      <!-- Right Panel: Session Inspector & Chat Timeline -->
-      <SessionInspector
-        session={selectedSession}
-        {messages}
-        {isLoadingMessages}
-        {parentSession}
-        {childSubagents}
-        isStarred={selectedSession ? starredIds.has(selectedSession.id) : false}
-        onDeleteSingle={handleDeleteSingle}
-        onToggleStar={toggleStar}
-        onJumpSession={handleSelectSession}
-      />
-    </div>
-  {/if}
-
-  <!-- Floating Bulk Actions Bar (Shown when multiple items are selected) -->
-  {#if appMode === "session" && selectedIds.size > 0}
-    <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl shadow-xl px-4 py-2 flex items-center gap-3 text-xs text-slate-700 animate-in fade-in slide-in-from-bottom-2 duration-150">
-      <span class="font-bold text-slate-900 flex items-center gap-1.5">
-        <span class="h-2 w-2 rounded-full bg-sky-500"></span>
+  <!-- Floating Bulk Actions Bar (Sessions Only) -->
+  {#if appStore.activeNav === "sessions" && selectedIds.size > 0}
+    <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-300 dark:border-slate-700 rounded-2xl shadow-xl px-4 py-2 flex items-center gap-3 text-xs text-slate-700 dark:text-slate-200 animate-in fade-in slide-in-from-bottom-2 duration-150">
+      <span class="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+        <span class="h-2 w-2 rounded-full bg-claude-500"></span>
         {t("selected_count", { n: selectedIds.size })}
       </span>
 
-      <div class="h-4 w-px bg-slate-200"></div>
+      <div class="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
 
       <button
         onclick={bulkToggleStar}
-        class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-medium transition cursor-pointer"
+        class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-medium transition cursor-pointer"
       >
         <Star class="h-3.5 w-3.5 text-amber-600 fill-amber-500" />
         <span>{t("bulk_star")}</span>
@@ -552,15 +655,15 @@
 
       <button
         onclick={bulkExportJson}
-        class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition cursor-pointer"
+        class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium transition cursor-pointer"
       >
-        <Download class="h-3.5 w-3.5 text-slate-600" />
+        <Download class="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
         <span>{t("bulk_export")}</span>
       </button>
 
       <button
         onclick={handleOpenCleanup}
-        class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-medium transition cursor-pointer"
+        class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-medium transition cursor-pointer"
       >
         <Trash2 class="h-3.5 w-3.5 text-rose-600" />
         <span>{t("move_to_trash")}</span>
@@ -568,11 +671,22 @@
 
       <button
         onclick={() => (selectedIds = new Set())}
-        class="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer ml-1"
+        class="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer ml-1"
         title={t("deselect_all")}
       >
         <X class="h-3.5 w-3.5" />
       </button>
+    </div>
+  {/if}
+
+  <!-- Global Toast Overlay -->
+  {#if configStore.toast}
+    <div class="pointer-events-none fixed top-11 right-5 z-50">
+      <ToastOverlay
+        toast={configStore.toast}
+        onDismiss={() => configStore.dismissToast()}
+        onReveal={(path) => { void configStore.revealPath(path); }}
+      />
     </div>
   {/if}
 

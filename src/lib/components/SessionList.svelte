@@ -20,8 +20,13 @@
     Archive,
     RotateCcw,
     Calendar,
+    RefreshCw,
+    Layers,
+    Activity,
   } from "@lucide/svelte";
-  import type { SessionSummary, SessionTreeNode } from "../types";
+  import type { GlobalStats, SessionSummary, SessionTreeNode } from "../types";
+  import { appStore } from "$lib/stores/app.svelte";
+  import { PLATFORMS, getPlatformLabel } from "$lib/platforms/registry";
   import {
     formatBytes,
     formatTimeAgo,
@@ -34,6 +39,11 @@
     treeNodes = [],
     flatSessions = [],
     allSessions = [],
+    stats = null,
+    isLoading = false,
+    starredCount = 0,
+    selectedPlatform = $bindable("all"),
+    selectedFilter = $bindable<"all" | "running" | "starred" | "archived" | "orphans">("all"),
     viewMode = $bindable("tree"),
     searchQuery = $bindable(""),
     sortBy = $bindable("updated_desc"),
@@ -48,10 +58,16 @@
     starredIds = new Set<string>(),
     onSelectSession,
     onToggleStar,
+    onRefresh,
   }: {
     treeNodes: SessionTreeNode[];
     flatSessions: SessionSummary[];
     allSessions: SessionSummary[];
+    stats: GlobalStats | null;
+    isLoading: boolean;
+    starredCount: number;
+    selectedPlatform: string;
+    selectedFilter: "all" | "running" | "starred" | "archived" | "orphans";
     viewMode: "tree" | "flat";
     searchQuery: string;
     sortBy: string;
@@ -66,9 +82,26 @@
     starredIds: Set<string>;
     onSelectSession: (s: SessionSummary) => void;
     onToggleStar: (id: string, e: Event) => void;
+    onRefresh: () => void;
   } = $props();
 
   let showFilterPopover = $state(false);
+  let showPlatformMenu = $state(false);
+  let platformMenuQuery = $state("");
+
+  let visiblePlatformOptions = $derived.by(() => {
+    const q = platformMenuQuery.trim().toLowerCase();
+    return PLATFORMS.filter((p) => {
+      if (appStore.isPlatformHidden(p.id) && p.id !== selectedPlatform) return false;
+      if (!q) return true;
+      return p.id.toLowerCase().includes(q) || p.label.toLowerCase().includes(q);
+    }).sort((a, b) => {
+      const ca = stats?.platform_distribution[a.id]?.count || 0;
+      const cb = stats?.platform_distribution[b.id]?.count || 0;
+      if (cb !== ca) return cb - ca;
+      return a.label.localeCompare(b.label);
+    });
+  });
 
   // Track manually collapsed parent nodes (default is expanded)
   let collapsedParents = $state<Set<string>>(new Set());
@@ -358,70 +391,172 @@
       e.preventDefault();
       searchInputEl?.focus();
       searchInputEl?.select();
-    } else if (e.key === "Escape" && document.activeElement === searchInputEl) {
-      searchQuery = "";
-      searchInputEl?.blur();
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
+      e.preventDefault();
+      if (!isLoading) onRefresh();
+    } else if (e.key === "Escape") {
+      showPlatformMenu = false;
+      if (document.activeElement === searchInputEl) {
+        searchQuery = "";
+        searchInputEl?.blur();
+      }
     }
   }
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} onclick={() => { showPlatformMenu = false; }} />
 
-<div class="w-96 md:w-[410px] shrink-0 flex flex-col h-full bg-slate-50/70 border-r border-slate-200 overflow-hidden">
-  <!-- Top Toolbar: Search + Quick Tools + Active Chips -->
-  <div class="p-3 border-b border-slate-200 bg-white/95 backdrop-blur-md space-y-2 shrink-0 shadow-2xs">
-    <!-- Search Input -->
-    <div class="relative">
-      <Search class="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-      <input
-        bind:this={searchInputEl}
-        type="text"
-        bind:value={searchQuery}
-        placeholder={t("search_sessions")}
-        class="w-full bg-slate-50 border border-slate-200 focus:bg-white rounded-lg pl-8 pr-12 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition shadow-2xs"
-      />
-      {#if searchQuery}
+<div class="w-96 md:w-[420px] shrink-0 flex flex-col h-full bg-slate-50/70 dark:bg-slate-950/60 border-r border-slate-200 dark:border-slate-800 overflow-hidden">
+  <!-- Top Toolbar: Quick Views + Platform Selector + Refresh + Search -->
+  <div class="p-3 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md space-y-2 shrink-0 shadow-2xs">
+    <!-- Row 0: Quick View Capsules + Platform Picker + Refresh -->
+    <div class="flex items-center justify-between gap-1.5 min-w-0">
+      <div class="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0">
+        {#each [
+          { id: "all", label: t("all_sessions"), count: stats?.total_sessions ?? 0, icon: Layers, activeCls: "bg-slate-900 dark:bg-claude-600 text-white border-slate-900 dark:border-claude-600" },
+          { id: "running", label: t("running"), count: stats?.running_count ?? 0, icon: Activity, activeCls: "bg-emerald-600 text-white border-emerald-600" },
+          { id: "starred", label: t("starred"), count: starredCount, icon: Star, activeCls: "bg-amber-500 text-white border-amber-500" },
+          { id: "archived", label: t("archived"), count: stats?.archived_count ?? 0, icon: Archive, activeCls: "bg-violet-600 text-white border-violet-600" },
+          { id: "orphans", label: t("empty_logs"), count: stats?.orphan_count ?? 0, icon: AlertCircle, activeCls: "bg-rose-600 text-white border-rose-600" },
+        ] as tab (tab.id)}
+          <button
+            type="button"
+            onclick={() => { selectedFilter = tab.id as typeof selectedFilter; }}
+            class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium border transition cursor-pointer shrink-0 {selectedFilter === tab.id
+              ? tab.activeCls
+              : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'}"
+          >
+            <span>{tab.label}</span>
+            {#if tab.count > 0}
+              <span class="font-mono text-[9px] opacity-80">{tab.count}</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+
+      <button
+        type="button"
+        onclick={onRefresh}
+        disabled={isLoading}
+        class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-claude-600 transition cursor-pointer disabled:opacity-40 shrink-0"
+        title={t("rescan_tooltip")}
+      >
+        <RefreshCw class="h-3.5 w-3.5 {isLoading ? 'animate-spin text-claude-600' : ''}" />
+      </button>
+    </div>
+
+    <!-- Search + Platform Dropdown Row -->
+    <div class="flex items-center gap-1.5">
+      <div class="relative flex-1 min-w-0">
+        <Search class="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+        <input
+          bind:this={searchInputEl}
+          type="text"
+          bind:value={searchQuery}
+          placeholder={t("search_sessions")}
+          class="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:bg-white dark:focus:bg-slate-900 rounded-lg pl-8 pr-10 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-claude-500 focus:ring-1 focus:ring-claude-500 transition shadow-2xs"
+        />
+        {#if searchQuery}
+          <button
+            onclick={() => (searchQuery = "")}
+            class="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+            title={t("clear_search")}
+          >
+            <X class="h-3.5 w-3.5" />
+          </button>
+        {:else}
+          <span class="absolute right-2 top-2 text-[10px] text-slate-400 font-mono pointer-events-none border border-slate-200/90 dark:border-slate-700 rounded px-1 py-0.2 bg-white/80 dark:bg-slate-900/80">
+            ⌘K
+          </span>
+        {/if}
+      </div>
+
+      <!-- Platform Dropdown Trigger -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="relative shrink-0" role="none" onclick={(e) => e.stopPropagation()}>
         <button
-          onclick={() => (searchQuery = "")}
-          class="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-          title={t("clear_search")}
+          type="button"
+          onclick={() => (showPlatformMenu = !showPlatformMenu)}
+          class="h-[30px] max-w-[138px] flex items-center gap-1.5 px-2.5 rounded-lg border text-[11px] font-medium transition cursor-pointer {selectedPlatform !== 'all'
+            ? 'bg-claude-50 dark:bg-claude-950/70 border-claude-300 dark:border-claude-700 text-claude-800 dark:text-claude-300'
+            : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'}"
         >
-          <X class="h-3.5 w-3.5" />
+          <span class="truncate">
+            {selectedPlatform === "all" ? t("all_platforms") : getPlatformLabel(selectedPlatform)}
+          </span>
+          <ChevronDown class="h-3 w-3 shrink-0 opacity-70" />
         </button>
-      {:else}
-        <span class="absolute right-2.5 top-2 text-[10px] text-slate-400 font-mono pointer-events-none border border-slate-200/90 rounded px-1 py-0.2 bg-white/80">
-          ⌘K
-        </span>
-      {/if}
+
+        {#if showPlatformMenu}
+          <div class="absolute right-0 mt-1.5 w-60 z-40 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-2 space-y-1.5">
+            <input
+              type="text"
+              bind:value={platformMenuQuery}
+              placeholder={t("search_platforms")}
+              class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-claude-500"
+            />
+            <div class="max-h-64 overflow-y-auto space-y-0.5">
+              <button
+                type="button"
+                onclick={() => { selectedPlatform = "all"; showPlatformMenu = false; }}
+                class="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-[11px] transition cursor-pointer {selectedPlatform === 'all'
+                  ? 'bg-claude-50 dark:bg-claude-950/70 text-claude-700 dark:text-claude-300 font-semibold'
+                  : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}"
+              >
+                <span>{t("all_platforms")}</span>
+                <span class="text-[10px] font-mono text-slate-400">{stats?.total_sessions ?? 0}</span>
+              </button>
+              {#each visiblePlatformOptions as plat (plat.id)}
+                {@const pCount = stats?.platform_distribution[plat.id]?.count ?? 0}
+                <button
+                  type="button"
+                  onclick={() => { selectedPlatform = plat.id; showPlatformMenu = false; }}
+                  class="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-[11px] transition cursor-pointer {selectedPlatform === plat.id
+                    ? 'bg-claude-50 dark:bg-claude-950/70 text-claude-700 dark:text-claude-300 font-semibold'
+                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}"
+                >
+                  <span class="flex items-center gap-2 min-w-0">
+                    <span class="h-2 w-2 rounded-full {plat.dot} shrink-0"></span>
+                    <span class="truncate">{plat.label}</span>
+                  </span>
+                  {#if pCount > 0}
+                    <span class="text-[10px] font-mono text-slate-400">{pCount}</span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
     </div>
 
     <!-- Secondary Controls Row: Select All + Expand/Collapse on Left, View + Sort + Filter on Right -->
-    <div class="flex items-center justify-between text-xs text-slate-600 gap-1.5 min-w-0">
+    <div class="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 gap-1.5 min-w-0">
       <!-- Left: Master Select All & Tree Expand/Collapse -->
       <div class="flex items-center gap-1.5 min-w-0">
         <button
           onclick={toggleSelectAll}
           disabled={allVisibleSessions.length === 0}
-          class="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer select-none whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+          class="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition cursor-pointer select-none whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
           title={isAllSelected ? t("deselect_all") : t("select_all")}
         >
           {#if isAllSelected}
-            <CheckSquare class="h-3.5 w-3.5 text-sky-600 shrink-0" />
-            <span class="text-[11px] font-semibold text-sky-700 whitespace-nowrap">{t("select_all")} ({allVisibleSessions.length})</span>
+            <CheckSquare class="h-3.5 w-3.5 text-claude-600 shrink-0" />
+            <span class="text-[11px] font-semibold text-claude-700 dark:text-claude-400 whitespace-nowrap">{t("select_all")} ({allVisibleSessions.length})</span>
           {:else if selectedVisibleCount > 0}
-            <MinusSquare class="h-3.5 w-3.5 text-sky-600 shrink-0" />
-            <span class="text-[11px] font-semibold text-slate-800 whitespace-nowrap">{t("selected_count", { n: selectedVisibleCount })}/{allVisibleSessions.length}</span>
+            <MinusSquare class="h-3.5 w-3.5 text-claude-600 shrink-0" />
+            <span class="text-[11px] font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap">{t("selected_count", { n: selectedVisibleCount })}/{allVisibleSessions.length}</span>
           {:else}
             <Square class="h-3.5 w-3.5 text-slate-400 shrink-0" />
-            <span class="text-[11px] text-slate-600 whitespace-nowrap">{t("select_all")} ({allVisibleSessions.length})</span>
+            <span class="text-[11px] text-slate-600 dark:text-slate-300 whitespace-nowrap">{t("select_all")} ({allVisibleSessions.length})</span>
           {/if}
         </button>
 
         {#if viewMode === "tree"}
-          <div class="flex items-center gap-1 text-[11px] text-slate-400 pl-1 border-l border-slate-200 whitespace-nowrap">
-            <button onclick={expandAll} class="hover:text-sky-600 transition cursor-pointer hover:underline">{t("expand")}</button>
-            <span class="text-slate-300">/</span>
-            <button onclick={collapseAll} class="hover:text-sky-600 transition cursor-pointer hover:underline">{t("collapse")}</button>
+          <div class="flex items-center gap-1 text-[11px] text-slate-400 pl-1 border-l border-slate-200 dark:border-slate-700 whitespace-nowrap">
+            <button onclick={expandAll} class="hover:text-claude-600 transition cursor-pointer hover:underline">{t("expand")}</button>
+            <span class="text-slate-300 dark:text-slate-600">/</span>
+            <button onclick={collapseAll} class="hover:text-claude-600 transition cursor-pointer hover:underline">{t("collapse")}</button>
           </div>
         {/if}
       </div>
@@ -429,12 +564,12 @@
       <!-- Right Action Group: View Switcher + Sort + Filter -->
       <div class="flex items-center gap-1 shrink-0">
         <!-- View Mode: Tree vs Flat -->
-        <div class="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+        <div class="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 shrink-0">
           <button
             onclick={() => (viewMode = "tree")}
             class="p-1 rounded text-xs transition cursor-pointer {viewMode === 'tree'
-              ? 'bg-white text-sky-700 shadow-2xs font-semibold'
-              : 'text-slate-500 hover:text-slate-800'}"
+              ? 'bg-white dark:bg-slate-700 text-claude-700 dark:text-claude-300 shadow-2xs font-semibold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'}"
             title={t("view_tree")}
           >
             <ListTree class="h-3.5 w-3.5" />
@@ -442,8 +577,8 @@
           <button
             onclick={() => (viewMode = "flat")}
             class="p-1 rounded text-xs transition cursor-pointer {viewMode === 'flat'
-              ? 'bg-white text-sky-700 shadow-2xs font-semibold'
-              : 'text-slate-500 hover:text-slate-800'}"
+              ? 'bg-white dark:bg-slate-700 text-claude-700 dark:text-claude-300 shadow-2xs font-semibold'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'}"
             title={t("view_flat")}
           >
             <List class="h-3.5 w-3.5" />
@@ -451,11 +586,11 @@
         </div>
 
         <!-- Sort Dropdown -->
-        <div class="flex items-center bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-lg text-[11px] shrink-0">
+        <div class="flex items-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded-lg text-[11px] shrink-0">
           <ArrowUpDown class="h-3 w-3 text-slate-400 mr-1" />
           <select
             bind:value={sortBy}
-            class="bg-transparent text-[11px] text-slate-700 focus:outline-none cursor-pointer pr-1"
+            class="bg-transparent text-[11px] text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer pr-1"
           >
             <option value="updated_desc">{t("sort_updated")}</option>
             <option value="created_asc">{t("sort_created")}</option>
@@ -468,15 +603,15 @@
         <button
           onclick={() => (showFilterPopover = !showFilterPopover)}
           class="relative p-1 rounded-lg border text-xs transition cursor-pointer shrink-0 {showFilterPopover
-            ? 'bg-sky-50 border-sky-300 text-sky-700'
+            ? 'bg-claude-50 dark:bg-claude-950/70 border-claude-300 dark:border-claude-700 text-claude-700 dark:text-claude-300'
             : activeFilterCount > 0
-              ? 'bg-sky-50 border-sky-200 text-sky-700'
-              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}"
+              ? 'bg-claude-50 dark:bg-claude-950/70 border-claude-200 dark:border-claude-800 text-claude-700 dark:text-claude-300'
+              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}"
           title={t("active_filter")}
         >
           <Filter class="h-3.5 w-3.5" />
           {#if activeFilterCount > 0}
-            <span class="absolute -top-1 -right-1 h-3.5 w-3.5 bg-sky-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+            <span class="absolute -top-1 -right-1 h-3.5 w-3.5 bg-claude-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
               {activeFilterCount}
             </span>
           {/if}
@@ -486,15 +621,15 @@
 
     <!-- Filter Popover Panel (Collapsible) -->
     {#if showFilterPopover}
-      <div class="pt-2 border-t border-slate-100 flex flex-col gap-2.5 text-[11px] text-slate-600 bg-slate-50/90 p-2.5 rounded-lg border border-slate-200/80 animate-in slide-in-from-top-1 duration-100">
+      <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2.5 text-[11px] text-slate-600 dark:text-slate-300 bg-slate-50/90 dark:bg-slate-800/70 p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-700 animate-in slide-in-from-top-1 duration-100">
         <!-- Top Row: Workspace & Kind Filters -->
         <div class="flex items-center gap-2">
           <!-- Workspace Filter -->
           <div class="flex-1 min-w-0">
-            <span class="text-slate-500 font-medium block text-[10px] mb-1">{t("workspace")}</span>
+            <span class="text-slate-500 dark:text-slate-400 font-medium block text-[10px] mb-1">{t("workspace")}</span>
             <select
               bind:value={selectedWorkspace}
-              class="w-full bg-white border border-slate-200 rounded-md px-2 py-1 text-[11px] text-slate-800 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 cursor-pointer shadow-2xs"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-800 dark:text-slate-100 focus:outline-none focus:border-claude-500 focus:ring-1 focus:ring-claude-500 cursor-pointer shadow-2xs"
             >
               <option value="all">{t("all_workspaces", { n: workspaces.length })}</option>
               {#each workspaces as ws}
@@ -505,10 +640,10 @@
 
           <!-- Kind Filter -->
           <div class="w-24 shrink-0">
-            <span class="text-slate-500 font-medium block text-[10px] mb-1">{t("hierarchy")}</span>
+            <span class="text-slate-500 dark:text-slate-400 font-medium block text-[10px] mb-1">{t("hierarchy")}</span>
             <select
               bind:value={selectedKind}
-              class="w-full bg-white border border-slate-200 rounded-md px-2 py-1 text-[11px] text-slate-800 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 cursor-pointer shadow-2xs"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-800 dark:text-slate-100 focus:outline-none focus:border-claude-500 focus:ring-1 focus:ring-claude-500 cursor-pointer shadow-2xs"
             >
               <option value="all">{t("all_hierarchy")}</option>
               <option value="main">{t("main_session")}</option>
@@ -518,10 +653,10 @@
         </div>
 
         <!-- Bottom Section: Time Range Section (Quick Presets + Date Range Pickers) -->
-        <div class="pt-2 border-t border-slate-200/70 space-y-2">
+        <div class="pt-2 border-t border-slate-200/70 dark:border-slate-700 space-y-2">
           <div class="flex items-center justify-between">
-            <div class="flex items-center gap-1 text-[10px] font-medium text-slate-600">
-              <Calendar class="h-3 w-3 text-slate-500" />
+            <div class="flex items-center gap-1 text-[10px] font-medium text-slate-600 dark:text-slate-300">
+              <Calendar class="h-3 w-3 text-slate-500 dark:text-slate-400" />
               <span>{t("time_range")}</span>
             </div>
             {#if isTimeFilterActive}
@@ -541,8 +676,8 @@
               <button
                 onclick={() => applyTimePreset(preset.id)}
                 class="px-2 py-0.5 rounded-full text-[10px] transition cursor-pointer border {activePreset === preset.id
-                  ? 'bg-sky-600 text-white border-sky-600 font-medium shadow-2xs'
-                  : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'}"
+                  ? 'bg-claude-600 text-white border-claude-600 font-medium shadow-2xs'
+                  : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'}"
               >
                 {preset.label}
               </button>
@@ -557,7 +692,7 @@
                 bind:value={customStartDate}
                 max={customEndDate || undefined}
                 onchange={handleCustomDateInput}
-                class="w-full bg-white border border-slate-200 rounded-md px-1.5 py-1 text-[11px] text-slate-800 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 font-mono shadow-2xs cursor-pointer"
+                class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-[11px] text-slate-800 dark:text-slate-100 focus:outline-none focus:border-claude-500 focus:ring-1 focus:ring-claude-500 font-mono shadow-2xs cursor-pointer"
               />
             </div>
             <span class="text-slate-400 text-[11px] shrink-0 font-medium">{t("to_date")}</span>
@@ -567,13 +702,13 @@
                 bind:value={customEndDate}
                 min={customStartDate || undefined}
                 onchange={handleCustomDateInput}
-                class="w-full bg-white border border-slate-200 rounded-md px-1.5 py-1 text-[11px] text-slate-800 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 font-mono shadow-2xs cursor-pointer"
+                class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-[11px] text-slate-800 dark:text-slate-100 focus:outline-none focus:border-claude-500 focus:ring-1 focus:ring-claude-500 font-mono shadow-2xs cursor-pointer"
               />
             </div>
             {#if customStartDate || customEndDate}
               <button
                 onclick={() => applyTimePreset("all")}
-                class="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition cursor-pointer shrink-0"
+                class="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
                 title={t("clear_time")}
               >
                 <X class="h-3 w-3" />
@@ -597,18 +732,18 @@
         {/if}
 
         {#if selectedWorkspace !== "all"}
-          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-50 text-sky-800 border border-sky-200 whitespace-nowrap">
+          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-claude-50 dark:bg-claude-950/70 text-claude-800 dark:text-claude-300 border border-claude-200 dark:border-claude-800 whitespace-nowrap">
             <span>{t("workspace_chip_prefix")}{selectedWorkspace.split("/").pop() || selectedWorkspace}</span>
-            <button onclick={() => (selectedWorkspace = "all")} class="hover:text-sky-950 cursor-pointer">
+            <button onclick={() => (selectedWorkspace = "all")} class="hover:text-claude-950 dark:hover:text-claude-100 cursor-pointer">
               <X class="h-2.5 w-2.5" />
             </button>
           </span>
         {/if}
 
         {#if isTimeFilterActive}
-          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-800 border border-indigo-200 whitespace-nowrap">
+          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-claude-50 dark:bg-claude-950/70 text-claude-800 dark:text-claude-300 border border-claude-200 dark:border-claude-800 whitespace-nowrap">
             <span>{t("time_chip_prefix")}{timeFilterChipLabel}</span>
-            <button onclick={() => applyTimePreset("all")} class="hover:text-indigo-950 cursor-pointer">
+            <button onclick={() => applyTimePreset("all")} class="hover:text-claude-950 dark:hover:text-claude-100 cursor-pointer">
               <X class="h-2.5 w-2.5" />
             </button>
           </span>
@@ -635,13 +770,13 @@
     {/if}
   </div>
 
-  <div class="px-3.5 py-1.5 bg-slate-100/70 border-b border-slate-200/80 flex items-center text-xs text-slate-500 shrink-0 select-none whitespace-nowrap">
+  <div class="px-3.5 py-1.5 bg-slate-100/70 dark:bg-slate-900/70 border-b border-slate-200/80 dark:border-slate-800 flex items-center text-xs text-slate-500 dark:text-slate-400 shrink-0 select-none whitespace-nowrap">
     <div class="flex items-center gap-2 whitespace-nowrap shrink-0">
-      <span class="font-semibold text-slate-700 text-[11px] whitespace-nowrap">
+      <span class="font-semibold text-slate-700 dark:text-slate-200 text-[11px] whitespace-nowrap">
         {visibleTelemetry.count} {t("sessions_suffix")}
       </span>
       {#if visibleTelemetry.runningCount > 0}
-        <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80 whitespace-nowrap">
+        <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800 whitespace-nowrap">
           <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
           <span>{visibleTelemetry.runningCount} {t("running")}</span>
         </span>
@@ -668,21 +803,21 @@
             onclick={() => onSelectSession(node.session)}
             onkeydown={(e) => e.key === "Enter" && onSelectSession(node.session)}
             class="group relative p-2.5 rounded-xl border text-left transition cursor-pointer {selectedSessionId === node.session.id
-              ? 'bg-sky-50/80 border-sky-400 shadow-sm ring-1 ring-sky-300/80'
-              : 'bg-white hover:bg-slate-50/90 border-slate-200/90 hover:border-slate-300 shadow-2xs'}"
+              ? 'bg-claude-50/80 dark:bg-claude-950/50 border-claude-400 dark:border-claude-600 shadow-sm ring-1 ring-claude-300/80 dark:ring-claude-700/60'
+              : 'bg-white dark:bg-slate-900 hover:bg-slate-50/90 dark:hover:bg-slate-800/80 border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-2xs'}"
           >
             <!-- Top Row: Checkbox, Platform Badge, Model, Status, Subagents Pill, Star -->
             <div class="flex items-center justify-between gap-1.5 mb-1">
               <div class="flex items-center gap-1.5 flex-wrap min-w-0">
                 <button
                   onclick={(e) => toggleSelect(node.session.id, e)}
-                  class="text-slate-400 hover:text-sky-600 p-0.5 shrink-0"
+                  class="text-slate-400 hover:text-claude-600 p-0.5 shrink-0"
                   title={t("checkbox_select_tip")}
                 >
                   {#if getSelectionState(node.session.id) === "all"}
-                    <CheckSquare class="h-3.5 w-3.5 text-sky-600" />
+                    <CheckSquare class="h-3.5 w-3.5 text-claude-600" />
                   {:else if getSelectionState(node.session.id) === "partial"}
-                    <MinusSquare class="h-3.5 w-3.5 text-sky-600" />
+                    <MinusSquare class="h-3.5 w-3.5 text-claude-600" />
                   {:else}
                     <Square class="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-400" />
                   {/if}
@@ -725,10 +860,10 @@
                 {#if node.subagents.length > 0}
                   <button
                     onclick={(e) => toggleExpand(node.session.id, e)}
-                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
+                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-claude-50 dark:bg-claude-950/70 hover:bg-claude-100 dark:hover:bg-claude-900/70 text-claude-700 dark:text-claude-300 border border-claude-200 dark:border-claude-800 transition cursor-pointer"
                     title={t("expand") + "/" + t("collapse")}
                   >
-                    <Sparkles class="h-2.5 w-2.5 text-indigo-600" />
+                    <Sparkles class="h-2.5 w-2.5 text-claude-600 dark:text-claude-400" />
                     <span>{t("subagents_count", { n: node.subagents.length })}</span>
                     {#if !collapsedParents.has(node.session.id)}
                       <ChevronDown class="h-2.5 w-2.5" />
@@ -749,7 +884,7 @@
             </div>
 
             <!-- Title -->
-            <h3 class="text-xs font-semibold text-slate-900 line-clamp-2 leading-snug mb-1 group-hover:text-sky-700 transition">
+            <h3 class="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug mb-1 group-hover:text-claude-700 dark:group-hover:text-claude-400 transition">
               {node.session.title || t("untitled_session")}
             </h3>
 
@@ -771,7 +906,7 @@
 
           <!-- Mounted Subagents Container (Collapsible) -->
           {#if node.subagents.length > 0 && !collapsedParents.has(node.session.id)}
-            <div class="ml-3.5 pl-2.5 border-l-2 border-indigo-200/90 space-y-1 py-0.5">
+            <div class="ml-3.5 pl-2.5 border-l-2 border-claude-200/90 dark:border-claude-800 space-y-1 py-0.5">
               {#each node.subagents as sub (sub.id)}
                 <div
                   role="button"
@@ -779,23 +914,23 @@
                   onclick={() => onSelectSession(sub)}
                   onkeydown={(e) => e.key === "Enter" && onSelectSession(sub)}
                   class="group relative p-2 rounded-lg border text-left transition cursor-pointer {selectedSessionId === sub.id
-                    ? 'bg-indigo-50/90 border-indigo-400 shadow-xs ring-1 ring-indigo-300'
-                    : 'bg-white hover:bg-slate-50 border-slate-200/80 hover:border-slate-300 shadow-2xs'}"
+                    ? 'bg-claude-50/90 dark:bg-claude-950/60 border-claude-400 dark:border-claude-600 shadow-xs ring-1 ring-claude-300 dark:ring-claude-700'
+                    : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 shadow-2xs'}"
                 >
                   <div class="flex items-center justify-between gap-1 mb-1">
                     <div class="flex items-center gap-1.5 flex-wrap">
                       <button
                         onclick={(e) => toggleSelect(sub.id, e)}
-                        class="text-slate-400 hover:text-indigo-600 p-0.5"
+                        class="text-slate-400 hover:text-claude-600 p-0.5"
                       >
                         {#if selectedIds.has(sub.id)}
-                          <CheckSquare class="h-3 w-3 text-indigo-600" />
+                          <CheckSquare class="h-3 w-3 text-claude-600" />
                         {:else}
                           <Square class="h-3 w-3 text-slate-300 group-hover:text-slate-400" />
                         {/if}
                       </button>
 
-                      <span class="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      <span class="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-claude-50 dark:bg-claude-950/70 text-claude-700 dark:text-claude-300 border border-claude-200 dark:border-claude-800">
                         <CornerDownRight class="h-2.5 w-2.5" />
                         {t("subagent_badge")}
                       </span>
@@ -817,7 +952,7 @@
                     </button>
                   </div>
 
-                  <h4 class="text-[11px] font-medium text-slate-800 line-clamp-1 group-hover:text-indigo-700 transition">
+                  <h4 class="text-[11px] font-medium text-slate-800 dark:text-slate-100 line-clamp-1 group-hover:text-claude-700 dark:group-hover:text-claude-400 transition">
                     {sub.title || t("untitled_subagent")}
                   </h4>
 
@@ -845,20 +980,20 @@
           onclick={() => onSelectSession(s)}
           onkeydown={(e) => e.key === "Enter" && onSelectSession(s)}
           class="group relative p-2.5 rounded-xl border text-left transition cursor-pointer {selectedSessionId === s.id
-            ? 'bg-sky-50/80 border-sky-400 shadow-sm ring-1 ring-sky-300/80'
-            : 'bg-white hover:bg-slate-50/90 border-slate-200/90 hover:border-slate-300 shadow-2xs'}"
+            ? 'bg-claude-50/80 dark:bg-claude-950/50 border-claude-400 dark:border-claude-600 shadow-sm ring-1 ring-claude-300/80 dark:ring-claude-700/60'
+            : 'bg-white dark:bg-slate-900 hover:bg-slate-50/90 dark:hover:bg-slate-800/80 border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-2xs'}"
         >
           <!-- Top Row -->
           <div class="flex items-center justify-between gap-1.5 mb-1">
             <div class="flex items-center gap-1.5 flex-wrap min-w-0">
               <button
                 onclick={(e) => toggleSelect(s.id, e)}
-                class="text-slate-400 hover:text-sky-600 p-0.5"
+                class="text-slate-400 hover:text-claude-600 p-0.5"
               >
                 {#if getSelectionState(s.id) === "all"}
-                  <CheckSquare class="h-3.5 w-3.5 text-sky-600" />
+                  <CheckSquare class="h-3.5 w-3.5 text-claude-600" />
                 {:else if getSelectionState(s.id) === "partial"}
-                  <MinusSquare class="h-3.5 w-3.5 text-sky-600" />
+                  <MinusSquare class="h-3.5 w-3.5 text-claude-600" />
                 {:else}
                   <Square class="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-400" />
                 {/if}
@@ -869,7 +1004,7 @@
               </span>
 
               {#if s.is_subagent}
-                <span class="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                <span class="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-medium bg-claude-50 dark:bg-claude-950/70 text-claude-700 dark:text-claude-300 border border-claude-200 dark:border-claude-800">
                   <CornerDownRight class="h-2.5 w-2.5" />
                   {t("subagent_badge")}
                 </span>
@@ -907,7 +1042,7 @@
           </div>
 
           <!-- Title -->
-          <h3 class="text-xs font-semibold text-slate-900 line-clamp-2 leading-snug mb-1 group-hover:text-sky-700 transition">
+          <h3 class="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug mb-1 group-hover:text-claude-700 dark:group-hover:text-claude-400 transition">
             {s.title || t("untitled_session")}
           </h3>
 
