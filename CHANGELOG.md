@@ -10,6 +10,22 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-20
+
+### Added
+
+- **Unified sidebar workbench & theme system**: consolidated Sessions, Usage, Request Logs, Instructions, Agents, Providers, MCP, Skills, Platforms, and Settings into a single collapsible left navigation bar with warm palettes, Light/Dark/System themes, and comfortable/compact density settings.
+- **Usage & Cost Analytics + standalone Request Logs view**: incremental local indexing across 14+ agents into SQLite (`usage.db`) with ECharts cost/token trend and platform breakdown charts, model/provider/catalog pricing overrides, multi-currency conversion, and a dedicated Request Logs view with per-request TTFT, total duration, output throughput (`tok/s`), cache hit rate, reasoning tokens, and jump-to-session navigation.
+- **Dedicated Instructions editor (`AGENTS.md` / `CLAUDE.md`)**: multi-preset library with CodeMirror Markdown editing (defaulting to edit mode), per-agent target binding, on-disk drift detection, diff preview, and backup restore.
+- **Separated MCP & Agents configuration**: Agents now manage provider/model profiles exclusively; MCP Servers gained live disk reconciliation across all installed agents, one-click local import, and streamlined agent binding modals.
+- **Symlink-based Skills management**: centralized Skill library synced via OS symlinks to installed agents, local disk scan & import, and remote Git repository discovery, direct Markdown URL fetch, and upstream update checking with automatic backups.
+- **Native desktop app resume for Antigravity**: launch `Antigravity.app` directly in the workspace for desktop sessions while preserving terminal CLI resume for CLI flavors, paired with a unified `h-7` inspector action toolbar and per-session Request Logs tab.
+
+### Fixed
+
+- **Codex & Qwen cached input token accounting**: subtract cached read tokens from inclusive prompt token counts to prevent double-counting cache reads in usage totals and cost estimates.
+- **Remote skill subpath safety & table scrolling**: validate remote skill repository subpaths against directory traversal, extract JSON model IDs for OpenCode/ZCode usage rankings, and remove nested scroll traps in request log views.
+
 ## [0.2.9] - 2026-11-16
 
 ### Added
