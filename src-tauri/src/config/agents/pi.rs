@@ -16,6 +16,8 @@ const ALLOWED_INPUT_MODALITIES: &[&str] = &["text", "image"];
 
 const PRESERVE_KEYS: &[&str] = &["modelOverrides", "headers", "compat"];
 
+const NO_API_KEY_PLACEHOLDER: &str = "no-key";
+
 const ADAPTIVE_MARKERS: &[&str] = &[
     "opus-4-6",
     "opus-4.6",
@@ -66,6 +68,22 @@ pub(crate) fn sibling(config: &Path, name: &str) -> PathBuf {
     }
 }
 
+fn has_stored_auth(auth: &Map<String, Value>, provider_id: &str) -> bool {
+    let Some(Value::Object(entry)) = auth.get(provider_id) else {
+        return false;
+    };
+    let Some(kind) = entry.get("type").and_then(Value::as_str) else {
+        return false;
+    };
+    if kind == "api_key" {
+        return entry
+            .get("key")
+            .and_then(Value::as_str)
+            .is_some_and(|key| !key.trim().is_empty());
+    }
+    !kind.trim().is_empty()
+}
+
 fn write_models(
     request: &ApplyRequest,
     path: &Path,
@@ -73,10 +91,12 @@ fn write_models(
 ) -> Result<(), ApplyError> {
     let mut models = read_json_object(path);
     let mut providers = json_object(models.get("providers"));
+    let auth = read_json_object(&sibling(path, "auth.json"));
     prune_providers(&mut providers, request);
     for provider in &request.providers {
-        let preserved = match providers.get(&provider.id) {
-            Some(Value::Object(previous)) => PRESERVE_KEYS
+        let previous = providers.get(&provider.id).and_then(Value::as_object);
+        let preserved = match previous {
+            Some(previous) => PRESERVE_KEYS
                 .iter()
                 .filter_map(|key| {
                     previous
@@ -87,9 +107,27 @@ fn write_models(
                 .collect::<Vec<_>>(),
             _ => Vec::new(),
         };
+        let previous_api_key = previous
+            .and_then(|p| p.get("apiKey"))
+            .and_then(Value::as_str)
+            .filter(|v| !v.trim().is_empty())
+            .map(str::to_string);
+        let has_request_key = request
+            .keys
+            .get(&provider.id)
+            .is_some_and(|key| !key.trim().is_empty());
         let mut entry = provider_json(provider);
         for (key, value) in preserved {
             entry.insert(key, value);
+        }
+        // Pi hides keyless custom providers from /model unless models.json or auth.json provides an apiKey.
+        if !has_request_key && !has_stored_auth(&auth, &provider.id) {
+            entry.insert(
+                "apiKey".into(),
+                Value::String(
+                    previous_api_key.unwrap_or_else(|| NO_API_KEY_PLACEHOLDER.to_string()),
+                ),
+            );
         }
         providers.insert(provider.id.clone(), Value::Object(entry));
     }
@@ -149,7 +187,7 @@ fn write_auth(
         let Some(key) = request.keys.get(&provider.id) else {
             continue;
         };
-        if key.is_empty() {
+        if key.trim().is_empty() {
             continue;
         }
         if let Some(Value::Object(current)) = auth.get(&provider.id) {
@@ -1030,5 +1068,126 @@ mod tests {
         assert!(omitted.get("input").is_none());
         assert!(omitted.get("contextWindow").is_none());
         assert!(omitted.get("maxTokens").is_none());
+    }
+
+    fn local_document(api_key: &str) -> AppDocument {
+        let mut document = AppDocument::default();
+        document.providers = vec![Provider {
+            id: "local".into(),
+            name: "本地".into(),
+            base_url: "http://127.0.0.1:18181/v1".into(),
+            api: APIKind::Completions,
+            catalog_url: String::new(),
+            api_key: api_key.into(),
+            compat_base_url: String::new(),
+            enabled: true,
+            models: vec![ModelEntry::new("qwen3.5-9b-heretic", "Qwen3.5")],
+        }];
+        document.set_settings(
+            AgentSettings {
+                model: "local/qwen3.5-9b-heretic".into(),
+                ..AgentSettings::default()
+            },
+            AgentKind::Pi,
+        );
+        document
+    }
+
+    #[test]
+    fn pi_keyless_provider_writes_placeholder_api_key_and_is_idempotent() {
+        let dir = TestDir::new("pi_keyless");
+        let home = dir.path();
+        let empty = HashMap::new();
+        let document = local_document("");
+
+        let first = apply_pi(&document, home, &empty);
+        assert!(!first.written.is_empty());
+
+        let paths = pi_paths(home, &empty);
+        let models = read_json(&paths.config);
+        assert_eq!(models["providers"]["local"]["apiKey"], NO_API_KEY_PLACEHOLDER);
+
+        let auth = read_json(&sibling(&paths.config, "auth.json"));
+        assert!(auth.get("local").is_none());
+
+        let second = apply_pi(&document, home, &empty);
+        assert!(second.written.is_empty());
+    }
+
+    #[test]
+    fn pi_keyless_provider_preserves_existing_models_json_api_key() {
+        let dir = TestDir::new("pi_preserve_key");
+        let home = dir.path();
+        let empty = HashMap::new();
+        let paths = pi_paths(home, &empty);
+        std::fs::create_dir_all(paths.config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &paths.config,
+            serde_json::to_vec_pretty(&json!({
+                "providers": {
+                    "local": {
+                        "api": "openai-completions",
+                        "baseUrl": "http://127.0.0.1:18181/v1",
+                        "apiKey": "$LOCAL_KEY",
+                        "models": []
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        apply_pi(&local_document(""), home, &empty);
+        let models = read_json(&paths.config);
+        assert_eq!(models["providers"]["local"]["apiKey"], "$LOCAL_KEY");
+    }
+
+    #[test]
+    fn pi_keyless_provider_skips_placeholder_when_auth_json_has_credentials() {
+        let dir = TestDir::new("pi_stored_auth");
+        let home = dir.path();
+        let empty = HashMap::new();
+        let paths = pi_paths(home, &empty);
+        std::fs::create_dir_all(paths.config.parent().unwrap()).unwrap();
+        std::fs::write(
+            sibling(&paths.config, "auth.json"),
+            serde_json::to_vec_pretty(&json!({
+                "local": {"type": "oauth", "access": "tok"},
+                "api_local": {"type": "api_key", "key": "sk-stored"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let mut document = local_document("");
+        let mut second_provider = document.providers[0].clone();
+        second_provider.id = "api_local".into();
+        document.providers.push(second_provider);
+
+        apply_pi(&document, home, &empty);
+        let models = read_json(&paths.config);
+        assert!(models["providers"]["local"].get("apiKey").is_none());
+        assert!(models["providers"]["api_local"].get("apiKey").is_none());
+    }
+
+    #[test]
+    fn pi_adding_real_api_key_removes_placeholder_from_models_json() {
+        let dir = TestDir::new("pi_key_transition");
+        let home = dir.path();
+        let empty = HashMap::new();
+        let paths = pi_paths(home, &empty);
+
+        apply_pi(&local_document(""), home, &empty);
+        assert_eq!(
+            read_json(&paths.config)["providers"]["local"]["apiKey"],
+            NO_API_KEY_PLACEHOLDER
+        );
+
+        apply_pi(&local_document("sk-real"), home, &empty);
+        let models = read_json(&paths.config);
+        assert!(models["providers"]["local"].get("apiKey").is_none());
+
+        let auth = read_json(&sibling(&paths.config, "auth.json"));
+        assert_eq!(auth["local"]["key"], "sk-real");
     }
 }
