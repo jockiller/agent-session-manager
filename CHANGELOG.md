@@ -10,6 +10,12 @@ Changelog entries start with 0.1.7. Earlier releases are documented in
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-22
+
+### Fixed
+
+- **Pi keyless local providers**: write a placeholder `apiKey` (`no-key`) into Pi's `models.json` when a provider has no configured API key and no existing credentials in `auth.json` (preserving any manual `models.json` `apiKey` and removing the placeholder once a real key is added), so local/keyless models appear in Pi's `/model` picker and `pi --list-models`.
+
 ## [0.3.1] - 2026-11-20
 
 ### Fixed
